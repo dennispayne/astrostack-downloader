@@ -427,12 +427,15 @@ public sealed partial class CommandRunner
         switch (parsed.SubCommand)
         {
             case "list":
+                var recipeRows = new List<string[]>();
+                recipeRows.Add(["COMPONENT", "PACKAGE", "ORIGIN", "SOURCE"]);
                 foreach (var recipe in store.All.OrderBy(r => r.ComponentId, StringComparer.Ordinal))
                 {
-                    Report($"{recipe.ComponentId,-18}{recipe.PackageId,-28}{recipe.Origin,-6}{recipe.SourceKind}");
+                    recipeRows.Add([recipe.ComponentId, recipe.PackageId, recipe.Origin.ToString(), recipe.SourceKind.ToString()]);
                     Emit(new JsonEvent { Event = "recipe.listed", Target = recipe.ComponentId, Stage = recipe.Origin.ToString() });
                 }
 
+                Report(RenderTable(recipeRows));
                 return ExitCode.Success;
 
             case "show":

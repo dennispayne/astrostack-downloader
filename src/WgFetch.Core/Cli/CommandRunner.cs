@@ -47,6 +47,7 @@ public sealed partial class CommandRunner
     private ILogger _logger = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     private RedactingConsoleLoggerProvider? _loggerProvider;
     private IProgressRenderer _progress = new PlainProgressRenderer(TextWriter.Null);
+    private bool _humanToStderr;
 
     public CommandRunner(TextWriter stdout, TextWriter stderr, RunnerDependencies? dependencies = null)
     {
@@ -126,6 +127,7 @@ public sealed partial class CommandRunner
         if (settings.Json)
         {
             _events = new JsonEventWriter(_stdout, settings.Secrets, deterministicOrder: true);
+            _humanToStderr = true;
         }
 
         _progress = terminal == TerminalMode.Plain
@@ -183,7 +185,21 @@ public sealed partial class CommandRunner
 
     private void Emit(JsonEvent @event) => _events?.Write(@event);
 
-    private void Report(string message) => _stdout.WriteLine(message);
+    /// <summary>
+    /// Human-readable output. With <c>--json</c>, stdout belongs exclusively to the event stream, so
+    /// prose moves to stderr and stdout stays parseable (docs/REQUIREMENTS.md, "Observability").
+    /// </summary>
+    private void Report(string message)
+    {
+        if (_humanToStderr)
+        {
+            _stderr.WriteLine(message);
+        }
+        else
+        {
+            _stdout.WriteLine(message);
+        }
+    }
 
     private RecipeStore LoadRecipes(RunSettings settings)
     {
