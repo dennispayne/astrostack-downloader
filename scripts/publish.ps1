@@ -3,8 +3,9 @@
     Publishes wgfetch as a portable, self-contained win-x64 NativeAOT directory and zips it.
 
 .DESCRIPTION
-    Produces artifacts/publish/win-x64/ (wgfetch.exe plus the native ONNX Runtime DLLs that must sit
-    alongside it) and artifacts/wgfetch-<version>-win-x64.zip. The ZIP is what the optional winget
+    Produces artifacts/publish/win-x64/ (wgfetch.exe plus any native side-by-side DLLs, such as the
+    ONNX Runtime libraries once those backends are wired — see docs/REQUIREMENTS.md "Known conflicts"
+    §2) and artifacts/wgfetch-<version>-win-x64.zip. The ZIP is what the optional winget
     manifest for wgfetch itself installs (InstallerType: zip, NestedInstallerType: portable).
     See docs/REQUIREMENTS.md, "Deliverables".
 #>
@@ -45,8 +46,10 @@ if (-not (Test-Path $executable)) {
     throw "Expected $executable to exist after publish."
 }
 
-# The ONNX Runtime native libraries are loaded by filename at runtime and must ship beside the EXE.
-$nativeLibraries = Get-ChildItem -Path $publishDirectory -Filter '*.dll' -File
+# Native side-by-side libraries (the ONNX Runtime DLLs, once those backends are wired) are loaded by
+# filename at runtime and must ship beside the EXE. A fully static NativeAOT publish emits none at all,
+# so force an array: under Set-StrictMode a bare $null result has no .Count and would fail the build.
+$nativeLibraries = @(Get-ChildItem -Path $publishDirectory -Filter '*.dll' -File)
 Write-Host "Published $($nativeLibraries.Count) native library file(s) alongside wgfetch.exe."
 
 Copy-Item (Join-Path $repoRoot 'LICENSE') $publishDirectory -Force

@@ -356,10 +356,29 @@ missing pin, rather than accepting unverified weights. `wgfetch prereqs status` 
 captured from a trusted machine — is the only step needed to make `prereqs install` functional, and no
 other code changes.
 
-### 2. Local ONNX inference is present as an interface, not as bundled weights
+### 2. Local ONNX inference is specified as an interface only; the ONNX backends are not yet wired
 
-`Microsoft.ML.OnnxRuntime` / `Microsoft.ML.OnnxRuntimeGenAI` back the `IEmbeddingModel` and
-`ITextGenerator` implementations, and no non-ONNX inference path exists. Because conflict (1) prevents
-acquiring the pinned weights here, the ONNX-backed implementations cannot be exercised in this
-environment; the hermetic test tier therefore uses deterministic fakes, as the specification requires,
-and the tier that loads real weights is tagged `Category=Live` and excluded from the default run.
+**Requirement.** *"Inference"* requires local execution through `Microsoft.ML.OnnxRuntime` and
+`Microsoft.ML.OnnxRuntimeGenAI` — E5-small-v2 for embedding-based name resolution and
+Phi-3.5-mini-instruct-onnx for the fallback tier.
+
+**Conflict.** Conflict (1) leaves the pinned weights unobtainable in this environment, so an
+ONNX-backed `IEmbeddingModel` / `ITextGenerator` could be neither exercised nor tested here. Adding the
+runtime packages without a single executable path would ship ~200 MB of native dependencies into the
+NativeAOT publish that no test could reach, and would misreport the project's real state.
+
+**Current state, stated plainly.** `WgFetch.Core` carries **no `Microsoft.ML.OnnxRuntime` or
+`Microsoft.ML.OnnxRuntimeGenAI` package reference**. What exists today is:
+
+- the `IEmbeddingModel` / `ITextGenerator` seams, `InferenceRouter` and the hardcoded
+  single-permit `LlmConcurrencyGate`;
+- deterministic fakes used by the hermetic tier;
+- the opt-in, OpenAI-compatible remote generator (`RemoteOpenAiTextGenerator`), which is off by default
+  and never contacted unless explicitly configured;
+- `PinnedModels` / `PrereqInstaller`, which describe and fail-closed-verify the model assets.
+
+Every model proposal is gated mechanically regardless of which backend produces it, so wiring the ONNX
+backends changes no security behaviour. Completing this requires, on a machine with access to
+`huggingface.co` and `nuget.org`: pinning the digests from conflict (1), adding the two package
+references, implementing the two interfaces over them, and covering them with a `Category=Live` tier.
+Until then the offline default resolves names via the deterministic tiers only.
