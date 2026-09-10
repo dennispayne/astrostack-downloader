@@ -104,7 +104,7 @@ internal static class GitHubReleaseResolver
 
             if (response.StatusCode == 403)
             {
-                return new GitHubReleaseLookup { Warning = $"GitHub API returned 403 for '{repository}' (access denied; no throttling headers present)." };
+                return new GitHubReleaseLookup { Warning = $"GitHub API returned 403 for '{repository}' (not rate-limit shaped)." };
             }
 
             if (!response.IsSuccess)

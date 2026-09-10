@@ -72,22 +72,50 @@ public abstract class RecipeBackedStage : IDiscoveryStage
             return StageOutcome.Empty(Stage, $"recipe '{recipe.ComponentId}' DirectUrl '{recipe.DirectUrl}' is not a valid absolute URL.");
         }
 
+        // A pin wins; failing that the version is read out of the URL itself, since a direct-URL recipe
+        // has no other place to carry one and an unversioned acquisition cannot be retained or compared.
+        var version = request.Pin ?? ExtractVersion(recipe.VersionPattern, resolvedUrl);
+
         return new StageOutcome
         {
             Stage = Stage,
             Allowlist = recipe.Allowlist,
-            Version = request.Pin,
+            Version = version,
             Candidates =
             [
                 new DiscoveryCandidate
                 {
                     Url = uri,
-                    Version = request.Pin,
+                    Version = version,
                     Stage = Stage,
                     Rationale = $"recipe '{recipe.ComponentId}' direct URL",
+                    FileName = Path.GetFileName(uri.LocalPath),
                 },
             ],
         };
+    }
+
+    /// <summary>Applies a recipe's version pattern to <paramref name="text"/>, preferring a named group.</summary>
+    private static string? ExtractVersion(string? pattern, string text)
+    {
+        if (string.IsNullOrWhiteSpace(pattern))
+        {
+            return null;
+        }
+
+        var match = SafeMatch(pattern, text);
+        if (match is not { Success: true })
+        {
+            return null;
+        }
+
+        var named = match.Groups["version"];
+        if (named.Success)
+        {
+            return named.Value;
+        }
+
+        return match.Groups.Count > 1 ? match.Groups[1].Value : null;
     }
 
     private async Task<StageOutcome> ResolveGitHubReleaseAsync(Recipe recipe, CancellationToken cancellationToken)
@@ -151,15 +179,7 @@ public abstract class RecipeBackedStage : IDiscoveryStage
             var html = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
             var reduced = HtmlReducer.Reduce(html, maxTextLength: 20_000, maxLinks: 500);
 
-            string? version = null;
-            if (!string.IsNullOrWhiteSpace(recipe.VersionPattern))
-            {
-                var match = SafeMatch(recipe.VersionPattern, reduced.Text);
-                if (match is { Success: true } && match.Groups.Count > 1)
-                {
-                    version = match.Groups[1].Value;
-                }
-            }
+            var version = ExtractVersion(recipe.VersionPattern, reduced.Text);
 
             var allowlist = new Verification.DomainAllowlist(recipe.Allowlist);
             var candidates = new List<DiscoveryCandidate>();
