@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "packageId": "Stellarium.Stellarium",
+  "componentId": "stellarium",
+  "displayName": "Stellarium",
+  "publisher": "Stellarium Developers",
+  "aliases": ["stellarium"],
+  "tags": ["planetarium", "sky map", "astrophotography"],
+  "sourceKind": "GitHubRelease",
+  "allowlist": ["github.com"],
+  "repository": "Stellarium/stellarium",
+  "assetPattern": "*win64.exe",
+  "installerType": "exe",
+  "origin": "Seed"
+}

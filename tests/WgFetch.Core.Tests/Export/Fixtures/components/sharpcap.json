@@ -1,0 +1,15 @@
+{
+  "id": "sharpcap",
+  "kind": "Application",
+  "module": "imaging-app",
+  "displayName": "SharpCap",
+  "versionSource": "DisplayVersion",
+  "expectedVersion": "4.1",
+  "downloadUrl": null,
+  "downloadFileName": null,
+  "sha256": null,
+  "archiveContainsInstaller": false,
+  "silentInstallArgs": null,
+  "installNotes": "SharpCap free edition only; Pro requires a licence (P1).",
+  "verified": false
+}

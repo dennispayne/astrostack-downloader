@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: AstroStack.NINA
+PackageVersion: 3.2.0.9001
+PackageLocale: en-US
+Publisher: Stefan Berg
+PackageName: "N.I.N.A. - Nighttime Imaging 'N' Astronomy"
+PackageUrl: https://nighttime-imaging.eu/
+License: Freeware
+ShortDescription: Astrophotography imaging suite
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

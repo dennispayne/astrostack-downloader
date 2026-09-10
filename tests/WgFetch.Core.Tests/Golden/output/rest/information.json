@@ -1,0 +1,11 @@
+{
+  "Data": {
+    "SourceIdentifier": "wgfetch.LocalSource",
+    "ServerSupportedVersions": [
+      "1.1.0",
+      "1.4.0",
+      "1.5.0",
+      "1.6.0"
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "packageIdentifier": "AstroStack.NINA",
+    "componentId": "nina",
+    "friendlyQuery": "nina imaging suite (leaked token [REDACTED] should never appear)",
+    "discoveryStage": "LlmAssisted",
+    "candidates": [
+      {
+        "url": "https://nighttime-imaging.eu/download/NINASetupBundle_3.2.0.9001.zip",
+        "stage": "LlmAssisted",
+        "rationale": "download page mentions credentials [REDACTED] in a tooltip",
+        "verificationStatus": "Accepted",
+        "reason": "accepted: Zip, 52428800 bytes",
+        "accepted": true
+      }
+    ],
+    "acceptedUrl": "https://nighttime-imaging.eu/download/NINASetupBundle_3.2.0.9001.zip",
+    "resolvedVersion": "3.2.0.9001",
+    "sourceVersions": {
+      "github": "3.2.0.9001"
+    },
+    "sha256": "ccfefa7a79cfb933fbad994853810daf6d78de8667aac052686d0a00fd9f1590",
+    "timestamp": "2026-01-15T10:30:00+00:00",
+    "resolutionTier": "LlmAssisted",
+    "confidence": 0.92,
+    "aiMode": "local",
+    "recipeUsed": true,
+    "recipeOrigin": "Seed"
+  }
+]

@@ -1,0 +1,28 @@
+{
+  "components": [
+    {
+      "id": "astap",
+      "availableVersion": "2024.09.15",
+      "changed": true,
+      "newlyAvailable": true
+    },
+    {
+      "id": "astap-db-h18",
+      "availableVersion": null,
+      "changed": false,
+      "newlyAvailable": false
+    },
+    {
+      "id": "nina",
+      "availableVersion": "3.2.0.9001",
+      "changed": true,
+      "newlyAvailable": false
+    },
+    {
+      "id": "sharpcap",
+      "availableVersion": null,
+      "changed": false,
+      "newlyAvailable": false
+    }
+  ]
+}

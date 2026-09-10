@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "packageId": "SharpCap.SharpCapPro",
+  "componentId": "sharpcap-pro",
+  "displayName": "SharpCap Pro",
+  "publisher": "SharpCap Ltd",
+  "aliases": ["sharpcap pro"],
+  "tags": ["capture", "planetary", "astrophotography"],
+  "sourceKind": "AuthWalled",
+  "allowlist": ["sharpcap.co.uk"],
+  "requiresAuth": true,
+  "authReason": "SharpCap Pro requires a paid license key tied to an account; the installer is the same free-tier binary but the Pro tier cannot be unlocked anonymously (P1, unsupported in P0).",
+  "origin": "Seed"
+}

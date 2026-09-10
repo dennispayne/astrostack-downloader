@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "packageId": "SharpCap.SharpCap",
+  "componentId": "sharpcap",
+  "displayName": "SharpCap (Free)",
+  "publisher": "SharpCap Ltd",
+  "aliases": ["sharpcap", "sharpcap free"],
+  "tags": ["capture", "planetary", "astrophotography"],
+  "sourceKind": "DownloadPage",
+  "allowlist": ["sharpcap.co.uk"],
+  "downloadPageUrl": "https://www.sharpcap.co.uk/sharpcap/downloads",
+  "versionPattern": "SharpCap[ _-]?(\\d+(?:\\.\\d+)+)",
+  "installerType": "exe",
+  "origin": "Seed",
+  "notes": "Free tier only; SharpCap Pro is a licensed product and ships as an auth-blocked entry (sharpcap-pro)."
+}

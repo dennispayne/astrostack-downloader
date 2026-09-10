@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "packageId": "OpenPHDGuiding.PHD2",
+  "componentId": "phd2",
+  "displayName": "PHD2 Guiding",
+  "publisher": "Open PHD Guiding Project",
+  "aliases": ["phd2", "phd2 guiding", "phd guiding"],
+  "tags": ["guiding", "astrophotography"],
+  "sourceKind": "GitHubRelease",
+  "allowlist": ["github.com", "openphdguiding.org"],
+  "repository": "OpenPHDGuiding/phd2",
+  "assetPattern": "*.exe",
+  "installerType": "exe",
+  "origin": "Seed"
+}

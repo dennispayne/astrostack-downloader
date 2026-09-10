@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "packageId": "MainSequenceSoftware.SequenceGeneratorPro",
+  "componentId": "sgp",
+  "displayName": "Sequence Generator Pro",
+  "publisher": "Main Sequence Software",
+  "aliases": ["sgp", "sequence generator pro", "sequence generator"],
+  "tags": ["imaging", "sequencer", "astrophotography"],
+  "sourceKind": "DownloadPage",
+  "allowlist": ["mainsequencesoftware.com"],
+  "downloadPageUrl": "https://www.mainsequencesoftware.com/products/sequence-generator-pro/download",
+  "versionPattern": "(\\d+(?:\\.\\d+){1,3})",
+  "installerType": "exe",
+  "origin": "Seed"
+}

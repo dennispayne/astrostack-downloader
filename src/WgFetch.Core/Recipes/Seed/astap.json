@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "packageId": "hnsky.ASTAP",
+  "componentId": "astap",
+  "displayName": "ASTAP - Astrometric STAcking Program",
+  "publisher": "Han Kleijn (hnsky.org)",
+  "aliases": ["astap"],
+  "tags": ["plate solving", "stacking", "astrophotography"],
+  "sourceKind": "DownloadPage",
+  "allowlist": ["hnsky.org"],
+  "downloadPageUrl": "https://www.hnsky.org/astap.htm",
+  "versionPattern": "astap[_-]?(\\d+(?:\\.\\d+)+)",
+  "installerType": "exe",
+  "origin": "Seed"
+}

@@ -1,0 +1,132 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly live-network run to catch recipe rot and upstream drift.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+jobs:
+  test:
+    name: Build and hermetic tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore wgfetch.slnx
+
+      - name: Build
+        run: dotnet build wgfetch.slnx -c Release --no-restore
+
+      # The hermetic suite must pass with zero network access and zero model files present.
+      - name: Test with coverage
+        run: >
+          dotnet test wgfetch.slnx -c Release --no-build
+          --filter "Category!=Live&Category!=Weights"
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+
+      - name: Enforce line coverage threshold
+        shell: bash
+        run: ./scripts/check-coverage.sh TestResults 85
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: warn
+
+  mutation:
+    name: Mutation testing (Stryker.NET)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      # stryker-config.json restricts mutation to the verification gate, the download/atomic-rename
+      # path and the version comparator, and fails the build below the configured threshold.
+      - name: Run Stryker
+        run: dotnet tool run dotnet-stryker -- --config-file stryker-config.json
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: StrykerOutput/**/reports/**
+          if-no-files-found: warn
+
+  aot:
+    name: NativeAOT publish and smoke test
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Publish portable ZIP
+        shell: pwsh
+        run: ./scripts/publish.ps1 -Configuration Release
+
+      # Startup, --help, --json shape and exit codes must survive AOT trimming.
+      - name: NativeAOT smoke tests
+        shell: pwsh
+        env:
+          WGFETCH_AOT_BINARY: ${{ github.workspace }}\artifacts\publish\win-x64\wgfetch.exe
+        run: dotnet test wgfetch.slnx -c Release --filter "Category=Aot"
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: wgfetch-win-x64
+          path: artifacts/*.zip
+          if-no-files-found: error
+
+  live:
+    name: Live-network tier (recipe rot)
+    runs-on: ubuntu-latest
+    # Scheduled/manual only: failures here mean "upstream changed", not "the code is broken".
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Live tests
+        run: dotnet test wgfetch.slnx -c Release --filter "Category=Live"

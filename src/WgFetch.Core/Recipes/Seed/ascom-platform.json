@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "packageId": "ASCOMInitiative.ASCOMPlatform",
+  "componentId": "ascom-platform",
+  "displayName": "ASCOM Platform",
+  "publisher": "ASCOM Initiative",
+  "aliases": ["ascom", "ascom platform"],
+  "tags": ["driver", "platform", "astrophotography"],
+  "sourceKind": "DownloadPage",
+  "allowlist": ["ascom-standards.org", "github.com"],
+  "downloadPageUrl": "https://ascom-standards.org/Downloads/Index.htm",
+  "versionPattern": "ASCOM Platform (\\d+(?:\\.\\d+)+)",
+  "installerType": "exe",
+  "origin": "Seed"
+}

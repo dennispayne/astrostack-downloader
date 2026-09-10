@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WgFetch.Cli/WgFetch.Cli.csproj" />
+    <Project Path="src/WgFetch.Core/WgFetch.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WgFetch.Core.Tests/WgFetch.Core.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -333,3 +333,33 @@ The NativeAOT CLI; `docs/REQUIREMENTS.md` and `AGENTS.md` as the first commit; p
 ## Non-goals (P0)
 
 No authenticated or paid-app acquisition. No credential storage. No telemetry of any kind. No GPU inference. No repacking or modification of installers. No MSIX/Inno/NSIS packaging of fetched apps. No installing anything. No concurrency guards for other workloads on the machine — known and accepted footgun.
+
+## Known conflicts
+
+Recorded per the instruction above: *"If a requirement here proves impossible or contradictory, stop
+and record the conflict in `docs/REQUIREMENTS.md` rather than quietly choosing an alternative."*
+
+### 1. Pinned model SHA256 digests could not be captured at build time
+
+**Requirement.** *"Prerequisites — frictionless first run"* requires `wgfetch prereqs install` to verify
+each downloaded model against **SHA256 hashes compiled into the binary**, and to hard-fail on mismatch.
+
+**Conflict.** The environment in which this repository was implemented has no network route to
+`huggingface.co`, so the digests of the pinned E5-small-v2 and Phi-3.5-mini-instruct-onnx artifacts
+could not be obtained and compiled in. Inventing digests would be worse than having none.
+
+**Resolution chosen (fails closed, no silent deviation).** `PinnedModels` carries the exact repository,
+revision, file list and download URLs, with `Sha256` left `null` where the digest is not yet pinned.
+`PrereqInstaller` **refuses to install any model asset whose digest is not pinned** and reports the
+missing pin, rather than accepting unverified weights. `wgfetch prereqs status` reports such assets as
+`Unpinned`. Filling in the digests — one constant per asset in `src/WgFetch.Core/Prereqs/PinnedModels.cs`,
+captured from a trusted machine — is the only step needed to make `prereqs install` functional, and no
+other code changes.
+
+### 2. Local ONNX inference is present as an interface, not as bundled weights
+
+`Microsoft.ML.OnnxRuntime` / `Microsoft.ML.OnnxRuntimeGenAI` back the `IEmbeddingModel` and
+`ITextGenerator` implementations, and no non-ONNX inference path exists. Because conflict (1) prevents
+acquiring the pinned weights here, the ONNX-backed implementations cannot be exercised in this
+environment; the hermetic test tier therefore uses deterministic fakes, as the specification requires,
+and the tier that loads real weights is tagged `Category=Live` and excluded from the default run.

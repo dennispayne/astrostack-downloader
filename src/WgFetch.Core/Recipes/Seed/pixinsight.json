@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "packageId": "PixInsight.PixInsight",
+  "componentId": "pixinsight",
+  "displayName": "PixInsight",
+  "publisher": "Pleiades Astrophoto",
+  "aliases": ["pixinsight", "pix insight"],
+  "tags": ["processing", "astrophotography"],
+  "sourceKind": "AuthWalled",
+  "allowlist": ["pixinsight.com"],
+  "requiresAuth": true,
+  "authReason": "PixInsight is a paid, license-gated product; installers are only available after purchase and account login (P1, unsupported in P0).",
+  "origin": "Seed"
+}
