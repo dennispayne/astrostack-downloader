@@ -22,6 +22,7 @@ public sealed class LiveProgressRenderer : IProgressRenderer
     private readonly Task _loop;
 
     private int _frame;
+    private bool _disposed;
     private SessionReport? _report;
 
     public LiveProgressRenderer(IAnsiConsole? console = null, bool unicode = true)
@@ -67,6 +68,12 @@ public sealed class LiveProgressRenderer : IProgressRenderer
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         await _cts.CancelAsync().ConfigureAwait(false);
         try
         {
@@ -121,7 +128,8 @@ public sealed class LiveProgressRenderer : IProgressRenderer
 
     private IRenderable BuildRenderable()
     {
-        var table = new Table().Border(TableBorder.Minimal).HideHeaders();
+        // ASCII mode must stay ASCII all the way down, borders included.
+        var table = new Table().Border(_unicode ? TableBorder.Minimal : TableBorder.Ascii).HideHeaders();
         table.AddColumn(new TableColumn(string.Empty).NoWrap());
         table.AddColumn(new TableColumn(string.Empty));
         table.AddColumn(new TableColumn(string.Empty));

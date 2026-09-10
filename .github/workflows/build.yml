@@ -42,7 +42,7 @@ jobs:
           --filter "Category!=Live&Category!=Weights"
           --collect:"XPlat Code Coverage"
           --results-directory TestResults
-          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+          --settings coverlet.runsettings
 
       - name: Enforce line coverage threshold
         shell: bash
