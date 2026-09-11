@@ -79,7 +79,7 @@ public sealed partial class CommandRunner
 
         var parsed = CommandLineParser.Parse(args);
 
-        if (parsed.NoCommandGiven && parsed.Errors.Count == 1)
+        if (parsed.NoCommandGiven && parsed.Errors.All(error => error == "no command given"))
         {
             return await ShowLandingAsync(parsed, cancellationToken).ConfigureAwait(false);
         }
@@ -185,7 +185,7 @@ public sealed partial class CommandRunner
         var environment = BuildTerminalEnvironment(settings);
         var terminal = TerminalCapability.Detect(environment);
 
-        if (settings.Json || environment.OutputRedirected || environment.ErrorRedirected)
+        if (settings.Json || environment.OutputRedirected)
         {
             if (settings.Json)
             {
@@ -222,12 +222,21 @@ public sealed partial class CommandRunner
                 ColorSystem = ColorSystemSupport.TrueColor,
                 Out = new AnsiConsoleOutput(_stdout),
             });
-            console.Write(SplashScreen.CreateInteractive(targets, settings.OutputDirectory, prerequisitesInstalled));
+            console.Write(SplashScreen.CreateInteractive(
+                targets,
+                settings.OutputDirectory,
+                prerequisitesInstalled,
+                _dependencies.TimeProvider.GetUtcNow()));
             console.WriteLine();
         }
         else
         {
-            SplashScreen.WritePlain(_stdout, targets, settings.OutputDirectory, prerequisitesInstalled);
+            SplashScreen.WritePlain(
+                _stdout,
+                targets,
+                settings.OutputDirectory,
+                prerequisitesInstalled,
+                _dependencies.TimeProvider.GetUtcNow());
         }
 
         _stdout.WriteLine();

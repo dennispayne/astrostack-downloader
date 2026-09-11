@@ -130,7 +130,8 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync([], CancellationToken.None);
 
         Assert.Equal(ExitCode.Success, exit);
-        Assert.Contains("Targets acquired  ·  1", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Targets acquired", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("·  1", stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
     }
 
@@ -149,6 +150,23 @@ public sealed class CommandRunnerTests
         using var json = JsonDocument.Parse(stdout.ToString());
         Assert.Equal("error", json.RootElement.GetProperty("event").GetString());
         Assert.DoesNotContain("resolve  •", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Plain_ShowsColorlessSplash()
+    {
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("╭", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b", stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

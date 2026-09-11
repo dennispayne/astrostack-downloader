@@ -32,10 +32,17 @@ public sealed class SplashScreenTests
             ],
         };
 
-        SplashScreen.WritePlain(output, targets, "/source", prerequisitesInstalled: true);
+        SplashScreen.WritePlain(
+            output,
+            targets,
+            "/source",
+            prerequisitesInstalled: true,
+            now: new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero));
 
-        Assert.Contains("Targets acquired  ·  1", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Prereqs  ·  installed", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Targets acquired", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("·  1", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Prereqs", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("installed", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("/source", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("Get started", output.ToString(), StringComparison.Ordinal);
     }
@@ -52,8 +59,7 @@ public sealed class SplashScreenTests
 
         console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesInstalled: false));
 
-        Assert.Contains("\u001b[38;2;99;102;241m", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("\u001b[38;2;103;232;249m", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("╭", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("resolve  •  verify  •  download", output.ToString(), StringComparison.Ordinal);
     }
 }

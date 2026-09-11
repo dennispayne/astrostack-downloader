@@ -9,18 +9,27 @@ namespace WgFetch.Core.Cli;
 public static class SplashScreen
 {
     /// <summary>Writes the colorless fallback used when color has explicitly been disabled.</summary>
-    public static void WritePlain(TextWriter writer, TargetsDocument? targets, string outputDirectory, bool prerequisitesInstalled)
+    public static void WritePlain(
+        TextWriter writer,
+        TargetsDocument? targets,
+        string outputDirectory,
+        bool prerequisitesInstalled,
+        DateTimeOffset? now = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
         writer.WriteLine("wgfetch");
         writer.WriteLine("resolve • verify • download");
         writer.WriteLine();
-        WriteStatus(writer, targets, outputDirectory, prerequisitesInstalled);
+        WriteStatus(writer, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow);
     }
 
     /// <summary>Builds the colored interactive splash using Spectre.Console.</summary>
-    public static IRenderable CreateInteractive(TargetsDocument? targets, string outputDirectory, bool prerequisitesInstalled)
+    public static IRenderable CreateInteractive(
+        TargetsDocument? targets,
+        string outputDirectory,
+        bool prerequisitesInstalled,
+        DateTimeOffset? now = null)
     {
         var art = new Markup(
             "[#67e8f9]·[/]       [#6366f1]⋆[/]       [#67e8f9]·[/]          [#6366f1]✦[/]\n" +
@@ -42,11 +51,16 @@ public static class SplashScreen
             .Padding(3, 1);
 
         var status = new StringWriter(CultureInfo.InvariantCulture);
-        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled);
+        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow);
         return new Rows(panel, new Text(status.ToString()));
     }
 
-    private static void WriteStatus(TextWriter writer, TargetsDocument? targets, string outputDirectory, bool prerequisitesInstalled)
+    private static void WriteStatus(
+        TextWriter writer,
+        TargetsDocument? targets,
+        string outputDirectory,
+        bool prerequisitesInstalled,
+        DateTimeOffset now)
     {
         if (targets is null)
         {
@@ -59,13 +73,14 @@ public static class SplashScreen
             .Select(target => target.LastAttempt)
             .Max();
 
-        writer.WriteLine($"Targets acquired  ·  {acquired}       Prereqs  ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
-        writer.WriteLine($"Source tree       ·  {outputDirectory}  Last fetch  ·  {(lastFetch is null ? "never" : FormatElapsed(lastFetch.Value))}");
+        writer.WriteLine($"{"Targets acquired",-18} ·  {acquired,-7} {"Prereqs",-10} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
+        writer.WriteLine($"{"Source tree",-18} ·  {outputDirectory}");
+        writer.WriteLine($"{"Last fetch",-18} ·  {(lastFetch is null ? "never" : FormatElapsed(lastFetch.Value, now))}");
     }
 
-    private static string FormatElapsed(DateTimeOffset time)
+    private static string FormatElapsed(DateTimeOffset time, DateTimeOffset now)
     {
-        var elapsed = DateTimeOffset.UtcNow - time;
+        var elapsed = now - time;
         if (elapsed <= TimeSpan.FromHours(1))
         {
             return "just now";
