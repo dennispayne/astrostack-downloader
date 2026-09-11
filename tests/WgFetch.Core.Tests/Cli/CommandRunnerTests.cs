@@ -3,6 +3,7 @@ using WgFetch.Core.Cli;
 using WgFetch.Core.Inference;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
+using WgFetch.Core.Progress;
 using WgFetch.Core.Targets;
 using WgFetch.Core.Tests.Support;
 
@@ -90,6 +91,81 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.Success, exit);
         Assert.Contains("fetch", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Interactive_ShowsSplashAndExistingHelp()
+    {
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_WithTargets_ShowsStatus()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("Targets acquired  ·  1", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Json_EmitsOnlyUsageErrorEvent()
+    {
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--json"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        using var json = JsonDocument.Parse(stdout.ToString());
+        Assert.Equal("error", json.RootElement.GetProperty("event").GetString());
+        Assert.DoesNotContain("resolve  •", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Redirected_ShowsExistingUsageErrorOnly()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { OutputRedirected = true, Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Empty(stdout.ToString());
+        Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

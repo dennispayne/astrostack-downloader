@@ -55,16 +55,29 @@ public static class SplashScreen
         }
 
         var acquired = targets.Targets.Count(target => target.State == TargetState.Acquired);
-        var lastFetch = targets.Targets
-            .Where(target => target.LastAttempt is not null)
-            .Select(target => target.LastAttempt!.Value)
-            .DefaultIfEmpty()
+        DateTimeOffset? lastFetch = targets.Targets
+            .Select(target => target.LastAttempt)
             .Max();
 
         writer.WriteLine($"Targets acquired  ·  {acquired}       Prereqs  ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
-        writer.WriteLine($"Source tree       ·  {outputDirectory}  Last fetch  ·  {(lastFetch == default ? "never" : FormatElapsed(lastFetch))}");
+        writer.WriteLine($"Source tree       ·  {outputDirectory}  Last fetch  ·  {(lastFetch is null ? "never" : FormatElapsed(lastFetch.Value))}");
     }
 
-    private static string FormatElapsed(DateTimeOffset time) =>
-        time > DateTimeOffset.UtcNow ? "just now" : $"{Math.Max(0, (int)(DateTimeOffset.UtcNow - time).TotalDays)} days ago";
+    private static string FormatElapsed(DateTimeOffset time)
+    {
+        var elapsed = DateTimeOffset.UtcNow - time;
+        if (elapsed <= TimeSpan.FromHours(1))
+        {
+            return "just now";
+        }
+
+        if (elapsed < TimeSpan.FromDays(1))
+        {
+            var hours = (int)elapsed.TotalHours;
+            return $"{hours} {(hours == 1 ? "hour" : "hours")} ago";
+        }
+
+        var days = (int)elapsed.TotalDays;
+        return $"{days} {(days == 1 ? "day" : "days")} ago";
+    }
 }

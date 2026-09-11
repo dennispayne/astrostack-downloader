@@ -34,6 +34,9 @@ public sealed record RunnerDependencies
 
     /// <summary>Overrides the process environment so terminal detection is testable.</summary>
     public IReadOnlyDictionary<string, string?>? Environment { get; init; }
+
+    /// <summary>Overrides terminal capability detection so presentation remains hermetically testable.</summary>
+    public TerminalEnvironment? TerminalEnvironment { get; init; }
 }
 
 /// <summary>
@@ -76,8 +79,7 @@ public sealed partial class CommandRunner
 
         var parsed = CommandLineParser.Parse(args);
 
-        if (parsed.Command is null && !parsed.HelpRequested && !parsed.VersionRequested &&
-            parsed.Errors.Count == 1 && parsed.Errors[0] == "no command given")
+        if (parsed.NoCommandGiven && parsed.Errors.Count == 1)
         {
             return await ShowLandingAsync(parsed, cancellationToken).ConfigureAwait(false);
         }
@@ -185,6 +187,23 @@ public sealed partial class CommandRunner
 
         if (settings.Json || environment.OutputRedirected || environment.ErrorRedirected)
         {
+            if (settings.Json)
+            {
+                var events = new JsonEventWriter(_stdout, settings.Secrets);
+                events.Write(new JsonEvent
+                {
+                    Event = "error",
+                    Status = "usage-error",
+                    Message = "no command given",
+                    ExitCode = (int)ExitCode.UsageError,
+                });
+            }
+            else
+            {
+                _stderr.WriteLine("wgfetch: no command given");
+                _stderr.WriteLine("Run 'wgfetch --help' for usage.");
+            }
+
             return ExitCode.UsageError;
         }
 
@@ -198,8 +217,13 @@ public sealed partial class CommandRunner
         var prerequisitesInstalled = File.Exists(Path.Combine(settings.ModelsRoot, "install-manifest.json"));
         if (terminal == TerminalMode.Interactive)
         {
-            AnsiConsole.Console.Write(SplashScreen.CreateInteractive(targets, settings.OutputDirectory, prerequisitesInstalled));
-            AnsiConsole.Console.WriteLine();
+            var console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                ColorSystem = ColorSystemSupport.TrueColor,
+                Out = new AnsiConsoleOutput(_stdout),
+            });
+            console.Write(SplashScreen.CreateInteractive(targets, settings.OutputDirectory, prerequisitesInstalled));
+            console.WriteLine();
         }
         else
         {
@@ -213,6 +237,16 @@ public sealed partial class CommandRunner
 
     private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings)
     {
+        if (_dependencies.TerminalEnvironment is { } environment)
+        {
+            return environment with
+            {
+                PlainRequested = settings.Plain,
+                NoColorRequested = settings.NoColor,
+                JsonRequested = settings.Json,
+            };
+        }
+
         if (_dependencies.Environment is null)
         {
             return TerminalEnvironment.FromProcess(settings.Plain, settings.NoColor, settings.Json);

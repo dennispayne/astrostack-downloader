@@ -34,6 +34,8 @@ public sealed record ParsedCommandLine
 
     public bool VersionRequested { get; init; }
 
+    public bool NoCommandGiven { get; init; }
+
     public bool HasErrors => Errors.Count > 0;
 
     public bool Has(string option) => Options.ContainsKey(option);
@@ -264,6 +266,7 @@ public static class CommandLineParser
             Errors = errors,
             HelpRequested = help,
             VersionRequested = version,
+            NoCommandGiven = command is null && !help && !version,
         };
     }
 
