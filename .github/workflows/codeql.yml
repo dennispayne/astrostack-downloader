@@ -1,0 +1,68 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly scan to catch newly disclosed vulnerabilities in unchanged code.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          # wgfetch is the planned .NET 10 NativeAOT CLI (see PR #1); autobuild covers it once
+          # the solution lands on this branch.
+          - language: csharp
+            build-mode: autobuild
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # `main` has no .NET solution yet (it arrives via PR #1). Skip the C# scan rather than
+      # failing CI on a language with nothing to analyze; this turns on automatically once a
+      # .sln/.slnx/.csproj is committed here.
+      - name: Check for .NET project
+        if: matrix.language == 'csharp'
+        id: dotnet-check
+        shell: bash
+        run: |
+          if git ls-files -- '*.sln' '*.slnx' '*.csproj' | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Initialize CodeQL
+        if: matrix.language != 'csharp' || steps.dotnet-check.outputs.present == 'true'
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Autobuild
+        if: matrix.build-mode == 'autobuild' && steps.dotnet-check.outputs.present == 'true'
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        if: matrix.language != 'csharp' || steps.dotnet-check.outputs.present == 'true'
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
