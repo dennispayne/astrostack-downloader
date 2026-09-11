@@ -18,9 +18,15 @@
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
-  <!-- SourceLink lets debuggers/crash tools resolve PDBs straight to the exact commit on GitHub. -->
-  <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
-  </ItemGroup>
+  <!--
+    SourceLink lets debuggers/crash tools resolve PDBs straight to the exact commit on GitHub. Since
+    .NET 8 it ships inside the SDK and is on by default, so no PackageReference is needed. The
+    explicit Microsoft.SourceLink.GitHub 8.0.0 reference was also dragging in Microsoft.Build.Tasks.Git
+    8.0.0, which NU1902 flags for CVE-2026-62900 with no patched 8.0.x release.
+  -->
+  <PropertyGroup>
+    <EnableSourceLink>true</EnableSourceLink>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
 
 </Project>

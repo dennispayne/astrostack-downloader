@@ -52,7 +52,9 @@ Failing any check: reject, log the reason, exit nonzero. **Never write a login p
 
 - **.NET 10**, **NativeAOT**, portable single-directory (no installer, no MSIX, no Inno/NSIS).
 - `Microsoft.ML.OnnxRuntime` (embeddings), `Microsoft.ML.OnnxRuntimeGenAI` (local generative), `Microsoft.ML.Tokenizers`.
-- Pinned models: **E5-small-v2** (ONNX int8) and **Phi-3.5-mini-instruct-onnx** (`cpu-int4-rtn-block-32`).
+- Pinned models: **E5-small-v2** (ONNX `model_O4`) and **Phi-3.5-mini-instruct-onnx**
+  (`cpu-int4-awq-block-128-acc-level-4`). These supersede the `model_quantized` / `cpu-int4-rtn-block-32`
+  artifacts originally named here, which no longer exist upstream — see "Known conflicts" §1.
 - Do not introduce llama.cpp/GGUF or any non-ONNX-Runtime inference path.
 
 **Reference hardware — design to it:** Intel Celeron N5105, 4 cores @ 2.0GHz, **no AVX2**, 8GB RAM, integrated UHD (no GPU inference), Windows 11 Pro. CPU-only, scalar/SSE4.2 paths; Phi runs at roughly 2–6 tok/s. Keep local-model outputs to short structured selections and pre-filter HTML aggressively before it reaches the model.
@@ -339,22 +341,49 @@ No authenticated or paid-app acquisition. No credential storage. No telemetry of
 Recorded per the instruction above: *"If a requirement here proves impossible or contradictory, stop
 and record the conflict in `docs/REQUIREMENTS.md` rather than quietly choosing an alternative."*
 
-### 1. Pinned model SHA256 digests could not be captured at build time
+### 1. Model digests are pinned, but from Hugging Face metadata rather than locally hashed bytes
 
 **Requirement.** *"Prerequisites — frictionless first run"* requires `wgfetch prereqs install` to verify
 each downloaded model against **SHA256 hashes compiled into the binary**, and to hard-fail on mismatch.
 
-**Conflict.** The environment in which this repository was implemented has no network route to
-`huggingface.co`, so the digests of the pinned E5-small-v2 and Phi-3.5-mini-instruct-onnx artifacts
-could not be obtained and compiled in. Inventing digests would be worse than having none.
+**Conflict.** `huggingface.co` itself is now reachable from the implementation environment, but Hugging
+Face serves large (LFS/Xet-backed) blobs by redirecting to a CDN host — currently
+`us.aws.cdn.hf.co` — which does not resolve here. The two multi-hundred-megabyte weight files therefore
+still cannot be downloaded and hashed locally. The legacy `cdn-lfs.huggingface.co` host no longer serves
+these objects, so allowlisting it does not help.
 
-**Resolution chosen (fails closed, no silent deviation).** `PinnedModels` carries the exact repository,
-revision, file list and download URLs, with `Sha256` left `null` where the digest is not yet pinned.
-`PrereqInstaller` **refuses to install any model asset whose digest is not pinned** and reports the
-missing pin, rather than accepting unverified weights. `wgfetch prereqs status` reports such assets as
-`Unpinned`. Filling in the digests — one constant per asset in `src/WgFetch.Core/Prereqs/PinnedModels.cs`,
-captured from a trusted machine — is the only step needed to make `prereqs install` functional, and no
-other code changes.
+**Resolution chosen (digests pinned; provenance stated, not hidden).** Every asset in
+`src/WgFetch.Core/Prereqs/PinnedModels.cs` now carries a `Sha256` and a `SizeBytes`, so
+`PrereqInstaller` no longer refuses to install either model. The digests come from two provenances,
+which are **not** equally strong and are recorded here rather than glossed over:
+
+| Asset | Digest provenance |
+| --- | --- |
+| `e5-small-v2/tokenizer.json`, `e5-small-v2/vocab.txt`, `phi-3.5-mini-instruct-onnx/genai_config.json`, `phi-3.5-mini-instruct-onnx/tokenizer.json` | Downloaded over TLS and hashed locally with `sha256sum`. |
+| `e5-small-v2/model.onnx`, `phi-3.5-mini-instruct-onnx/model.onnx`, `phi-3.5-mini-instruct-onnx/model.onnx.data` | Hugging Face's published git-LFS object id, which **is** the SHA256 of the file content. Read over TLS from `huggingface.co` and cross-checked against two independent endpoints: the repository tree API's `lfs.oid`, and the `x-linked-etag` header on the `resolve` redirect. |
+
+The second row means the weight digests are asserted by Hugging Face, not verified against bytes on a
+machine we control. That is strictly better than shipping no pin — the installer will now hard-fail if
+the CDN ever serves different bytes — but it is weaker than an independently hashed pin, and it should
+be confirmed the first time the weights are fetched on a trusted machine or by the `weights` CI job.
+
+**Two related corrections made at the same time.**
+
+- The previously recorded paths were dead upstream: `intfloat/e5-small-v2` no longer publishes
+  `onnx/model_quantized.onnx` (the current files are `model.onnx`, `onnx/model_O4.onnx` and
+  `onnx/model_qint8_avx512_vnni.onnx`), and `microsoft/Phi-3.5-mini-instruct-onnx` no longer publishes
+  `cpu-int4-rtn-block-32-acc-level-4` (the current CPU variant is
+  `cpu_and_mobile/cpu-int4-awq-block-128-acc-level-4`). The *"Stack"* section above has been updated to
+  name the variants that actually exist. `onnx/model_O4.onnx` is preferred over the int8 build because
+  the latter requires AVX512-VNNI, which the N5105 reference box does not have.
+- The URLs and `PinnedModel.Revision` now use immutable commit SHAs instead of `main`. A digest pinned
+  against a moving ref is not a pin: the ref can advance to different bytes, turning a verification
+  guarantee into a spurious hard failure.
+
+**Verification in CI.** A `weights` job in `.github/workflows/build.yml`, gated to `workflow_dispatch` /
+`schedule` exactly like the `live` tier, runs `wgfetch prereqs install --include-llm` against these real
+URLs and re-checks every file's SHA256 against the pinned constant. It caches on the content hash of
+`PinnedModels.cs`, never uploads weights as an artifact, and writes only under gitignored paths.
 
 ### 2. Local ONNX inference is specified as an interface only; the ONNX backends are not yet wired
 

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using WgFetch.Core.Abstractions;
 using WgFetch.Core.Catalog;
@@ -36,6 +37,12 @@ public sealed record RunnerDependencies
 /// Orchestrates every verb in the CLI surface (docs/REQUIREMENTS.md, "CLI surface"). Lives in the
 /// class library so it is fully testable; the NativeAOT executable is a thin shell over it.
 /// </summary>
+[SuppressMessage(
+    "Microsoft.Design",
+    "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The logger provider and progress renderer are created and disposed inside RunAsync's " +
+        "finally block, so their lifetime never outlives a single run and the runner itself owns nothing " +
+        "after it returns.")]
 public sealed partial class CommandRunner
 {
     private readonly TextWriter _stdout;

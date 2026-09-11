@@ -160,7 +160,7 @@ of any kind.** The complete list of hosts it can contact, and why:
 
 | Destination | When | How to avoid it |
 | --- | --- | --- |
-| `huggingface.co` | `wgfetch prereqs install`, or `--download-prereqs` | Fetch the pinned models manually and point `--models-root` at them |
+| `huggingface.co`, and the CDN host it redirects large model files to (currently `us.aws.cdn.hf.co`) | `wgfetch prereqs install`, or `--download-prereqs` | Fetch the pinned models manually and point `--models-root` at them |
 | The configured search provider | Only during LLM-assisted discovery | `--search-provider none` |
 | `api.github.com` | Resolving GitHub-hosted releases | Not contacted when no target resolves via GitHub |
 | Allowlisted vendor download hosts | Verification and download | Unavoidable; this is the product |

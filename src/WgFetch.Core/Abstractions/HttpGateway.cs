@@ -35,7 +35,7 @@ public sealed class HttpGateway : IHttpGateway, IDisposable
             _ownsClient = false;
         }
 
-        if (!_client.DefaultRequestHeaders.UserAgent.Any())
+        if (_client.DefaultRequestHeaders.UserAgent.Count == 0)
         {
             _client.DefaultRequestHeaders.UserAgent.ParseAdd($"wgfetch/1.0 (+{ProjectUrl})");
         }

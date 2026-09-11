@@ -23,8 +23,14 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    Test data is resolved from AppContext.BaseDirectory, never from [CallerFilePath]: CI builds set
+    ContinuousIntegrationBuild, which deterministically rewrites source paths to /_/... so a caller
+    path no longer points at anything on disk.
+  -->
   <ItemGroup>
     <None Include="Golden\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Export\Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using WgFetch.Core.Export;
 using WgFetch.Core.Targets;
 
@@ -6,11 +5,10 @@ namespace WgFetch.Core.Tests.Export;
 
 public class AstroStackDscImporterTests
 {
-    // Fixtures live under the test project source tree, not under Golden/, so they are not copied to
-    // the output directory by the csproj's Golden glob. Resolve them relative to this source file
-    // instead of AppContext.BaseDirectory.
-    private static string FixturesDirectory([CallerFilePath] string sourceFile = "") =>
-        Path.Combine(Path.GetDirectoryName(sourceFile)!, "Fixtures", "components");
+    // Copied next to the test assembly by the csproj. Resolved from AppContext.BaseDirectory rather
+    // than [CallerFilePath], which CI builds rewrite to /_/... under ContinuousIntegrationBuild.
+    private static string FixturesDirectory() =>
+        Path.Combine(AppContext.BaseDirectory, "Export", "Fixtures", "components");
 
     [Fact]
     public async Task ImportAsync_RealAstroStackDscFixture_SeedsExpectedStates()

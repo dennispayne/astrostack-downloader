@@ -130,3 +130,88 @@ jobs:
 
       - name: Live tests
         run: dotnet test wgfetch.slnx -c Release --filter "Category=Live"
+
+  weights:
+    name: Pinned model weights (real download, digest re-verified)
+    runs-on: ubuntu-latest
+    # Scheduled/manual only, like the live tier: this pulls ~2.8 GB from Hugging Face. Unlike `live`
+    # it is NOT continue-on-error — a digest mismatch means the bytes behind a pinned URL changed, and
+    # that must fail loudly rather than being logged and shrugged off.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    env:
+      # Gitignored (see .gitignore: `models/`), so weights never enter the tracked tree.
+      WGFETCH_MODELS_DIR: ${{ github.workspace }}/models
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      # Restore-only here, with an explicit save at the end, so a run that fails verification can
+      # never poison the cache with bad bytes. The key is the content hash of the pin file itself:
+      # change a URL, a digest or a revision and the cache is correctly invalidated.
+      - name: Restore cached weights
+        id: weights-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.WGFETCH_MODELS_DIR }}
+          key: weights-${{ runner.os }}-${{ hashFiles('src/WgFetch.Core/Prereqs/PinnedModels.cs') }}
+
+      - name: Build
+        run: dotnet build wgfetch.slnx -c Release
+
+      # Re-hashes any file already restored from cache and re-downloads only what does not match, so a
+      # cache hit still proves the bytes are the pinned ones.
+      - name: Install pinned models
+        run: >
+          dotnet run --project src/WgFetch.Cli/WgFetch.Cli.csproj -c Release --no-build --
+          prereqs install --include-llm --models-dir "$WGFETCH_MODELS_DIR"
+
+      # Independent second pass: reads every file back off disk, recomputes SHA256 and compares it to
+      # the digest compiled into the binary. Exits non-zero unless every asset reports `Present`.
+      - name: Re-verify every pinned digest
+        id: verify
+        run: >
+          dotnet run --project src/WgFetch.Cli/WgFetch.Cli.csproj -c Release --no-build --
+          prereqs status --models-dir "$WGFETCH_MODELS_DIR"
+
+      # The weights are large, licensed upstream artifacts: they must never be committed and never be
+      # published as a build artifact. This asserts the first half mechanically.
+      - name: Assert no weights landed in the tracked tree
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::prereqs install dirtied the working tree:"
+            git status --porcelain
+            exit 1
+          fi
+          git check-ignore -q "models/" || { echo "::error::models/ is not gitignored"; exit 1; }
+          echo "Working tree clean; models/ is gitignored."
+
+      - name: Save weights cache
+        if: steps.verify.outcome == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.WGFETCH_MODELS_DIR }}
+          key: weights-${{ runner.os }}-${{ hashFiles('src/WgFetch.Core/Prereqs/PinnedModels.cs') }}
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          case "${{ steps.verify.outcome }}" in
+            success) status="✅ verified"; note="every pinned SHA256 matched the downloaded bytes" ;;
+            failure) status="❌ mismatch"; note="a pinned SHA256 did not match — see the \`prereqs status\` step" ;;
+            *)       status="⏭️ skipped"; note="verification did not run" ;;
+          esac
+          {
+            echo "## Pinned model weights"
+            echo
+            echo "| Check | Status | Note |"
+            echo "|---|---|---|"
+            echo "| Cache | ${{ steps.weights-cache.outputs.cache-hit == 'true' && '♻️ hit' || '⬇️ miss (full download)' }} | keyed on \`PinnedModels.cs\` |"
+            echo "| SHA256 re-verification | ${status} | ${note} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+

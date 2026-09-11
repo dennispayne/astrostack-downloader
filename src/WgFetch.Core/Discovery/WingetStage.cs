@@ -4,8 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using WgFetch.Core.Abstractions;
 using WgFetch.Core.Model;
 using WgFetch.Core.Versioning;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using YamlDotNet.RepresentationModel;
 
 namespace WgFetch.Core.Discovery;
 
@@ -19,8 +18,6 @@ namespace WgFetch.Core.Discovery;
 public sealed class WingetStage : IDiscoveryStage
 {
     private const string Repository = "microsoft/winget-pkgs";
-    private static readonly IDeserializer YamlDeserializer =
-        new DeserializerBuilder().WithNamingConvention(PascalCaseNamingConvention.Instance).IgnoreUnmatchedProperties().Build();
 
     private readonly IHttpGateway _http;
     private readonly ILogger _logger;
@@ -125,35 +122,44 @@ public sealed class WingetStage : IDiscoveryStage
         var candidates = new List<DiscoveryCandidate>();
         try
         {
-            var manifest = YamlDeserializer.Deserialize<Dictionary<string, object>>(yaml);
-            if (manifest.TryGetValue("Installers", out var installersObj) && installersObj is List<object> installers)
+            var stream = new YamlStream();
+            using (var reader = new StringReader(yaml))
             {
-                foreach (var entry in installers)
+                stream.Load(reader);
+            }
+
+            if (stream.Documents.Count == 0 ||
+                stream.Documents[0].RootNode is not YamlMappingNode manifest ||
+                !manifest.Children.TryGetValue(new YamlScalarNode("Installers"), out var installersNode) ||
+                installersNode is not YamlSequenceNode installers)
+            {
+                return candidates;
+            }
+
+            foreach (var entry in installers)
+            {
+                if (entry is not YamlMappingNode installer)
                 {
-                    if (entry is not Dictionary<object, object> installer)
-                    {
-                        continue;
-                    }
-
-                    if (!installer.TryGetValue("InstallerUrl", out var urlObj) ||
-                        urlObj is not string urlText ||
-                        !Uri.TryCreate(urlText, UriKind.Absolute, out var uri))
-                    {
-                        continue;
-                    }
-
-                    var arch = installer.TryGetValue("Architecture", out var archObj) ? archObj?.ToString() : null;
-                    var sha = installer.TryGetValue("InstallerSha256", out var shaObj) ? shaObj?.ToString() : null;
-
-                    candidates.Add(new DiscoveryCandidate
-                    {
-                        Url = uri,
-                        Version = version,
-                        Stage = stage,
-                        Rationale = $"winget manifest installer ({arch ?? "unspecified arch"})",
-                        UpstreamSha256 = sha,
-                    });
+                    continue;
                 }
+
+                var urlText = Scalar(installer, "InstallerUrl");
+                if (urlText is null || !Uri.TryCreate(urlText, UriKind.Absolute, out var uri))
+                {
+                    continue;
+                }
+
+                var arch = Scalar(installer, "Architecture");
+                var sha = Scalar(installer, "InstallerSha256");
+
+                candidates.Add(new DiscoveryCandidate
+                {
+                    Url = uri,
+                    Version = version,
+                    Stage = stage,
+                    Rationale = $"winget manifest installer ({arch ?? "unspecified arch"})",
+                    UpstreamSha256 = sha,
+                });
             }
         }
         catch (Exception ex)
@@ -163,6 +169,12 @@ public sealed class WingetStage : IDiscoveryStage
 
         return candidates;
     }
+
+    /// <summary>Reads a scalar child by key, or null when absent or not a scalar.</summary>
+    private static string? Scalar(YamlMappingNode node, string key) =>
+        node.Children.TryGetValue(new YamlScalarNode(key), out var value) && value is YamlScalarNode scalar
+            ? scalar.Value
+            : null;
 
     private sealed record ContentEntry(string Name, string DownloadUrl, bool IsDirectory);
 

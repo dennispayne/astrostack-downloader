@@ -37,3 +37,24 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
+
+# wgfetch is a short-lived CLI process, not a hot server path: LoggerMessage delegates (CA1848) and
+# deferring argument evaluation behind IsEnabled checks (CA1873) would obscure the call sites without
+# buying anything measurable. CA1859/CA1822 push the opposite way from this codebase's deliberate
+# design — I/O and collaborators sit behind interfaces so they can be faked (see AGENTS.md), and
+# returning the abstraction rather than the concrete type is the point. Kept visible as suggestions
+# rather than silenced outright.
+[src/**/*.cs]
+dotnet_diagnostic.CA1848.severity = suggestion
+dotnet_diagnostic.CA1873.severity = suggestion
+dotnet_diagnostic.CA1859.severity = suggestion
+dotnet_diagnostic.CA1822.severity = suggestion
+
+# Test assemblies: the xUnit convention here is Underscore_Separated_Sentences so a failing test name
+# reads as the invariant it broke (CA1707), and micro-optimization analyzers only add noise to fixtures.
+[tests/**/*.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1822.severity = none
+dotnet_diagnostic.CA1859.severity = none
+dotnet_diagnostic.CA1861.severity = none
