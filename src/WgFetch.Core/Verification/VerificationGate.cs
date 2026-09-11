@@ -291,7 +291,8 @@ public sealed class VerificationGate
 
     /// <summary>
     /// Sends a request while following only HTTPS redirects within <paramref name="allowlist"/>.
-    /// The final response is returned unread so callers can apply payload-specific verification.
+    /// The final response is returned unread so callers can apply payload-specific verification and must
+    /// dispose the returned result after consuming it.
     /// </summary>
     public async Task<RedirectFollowResult> FollowAllowedRedirectsAsync(
         HttpRequestSpec request,

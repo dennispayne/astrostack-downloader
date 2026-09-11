@@ -1,3 +1,4 @@
+using WgFetch.Core.Abstractions;
 using WgFetch.Core.Tests.Support;
 using WgFetch.Core.Verification;
 
@@ -12,6 +13,66 @@ public sealed class VerificationGateTests
     private static readonly DomainAllowlist Allowlist = new(["nighttime-imaging.eu", "github.com"]);
 
     private static VerificationGate Gate(StubHttpGateway http) => new(http, new VerificationOptions());
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_non_https_candidate_before_any_request()
+    {
+        var http = new StubHttpGateway();
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri("http://github.com/x/setup.exe") },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.NotHttps, result.FailureStatus);
+        Assert.Empty(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_redirect_to_http()
+    {
+        const string url = "https://github.com/x/setup.exe";
+        var http = new StubHttpGateway().Map(url, StubResponse.Redirect("http://github.com/x/setup.exe"));
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.NotHttps, result.FailureStatus);
+        Assert.Single(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_redirect_without_a_location()
+    {
+        const string url = "https://github.com/x/setup.exe";
+        var http = new StubHttpGateway().Map(url, new StubResponse { StatusCode = 302 });
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.RequestFailed, result.FailureStatus);
+        Assert.Single(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_stops_at_the_configured_limit()
+    {
+        const string url = "https://github.com/loop";
+        var http = new StubHttpGateway().Map(url, StubResponse.Redirect(url));
+        var gate = new VerificationGate(http, new VerificationOptions { MaximumRedirects = 1 });
+
+        await using var result = await gate.FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.TooManyRedirects, result.FailureStatus);
+        Assert.Equal(2, http.Requests.Count);
+    }
 
     [Fact]
     public async Task Accepts_a_plausible_vendor_installer()

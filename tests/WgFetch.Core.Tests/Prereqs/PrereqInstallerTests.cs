@@ -13,9 +13,10 @@ public sealed class PrereqInstallerTests
         var http = new StubHttpGateway()
             .Map(asset.Url, StubResponse.Redirect(cdnUrl))
             .Map(cdnUrl, StubResponse.Binary(FakeInstaller.PortableExecutable()));
+        var logger = new CapturingLogger();
         using var directory = new TempDirectory();
 
-        var result = await new PrereqInstaller(http).InstallAsync(
+        var result = await new PrereqInstaller(http, logger).InstallAsync(
             directory.Path,
             includeLanguageModel: false,
             dryRun: false,
@@ -23,6 +24,7 @@ public sealed class PrereqInstallerTests
 
         Assert.False(result.Success); // The synthetic payload intentionally does not match the compiled-in hash.
         Assert.Equal([asset.Url, cdnUrl], http.Requests.Select(request => request.Url.ToString()));
+        Assert.Contains(logger.Messages, message => message.Contains("Pinned hash mismatch", StringComparison.Ordinal));
         Assert.False(File.Exists(directory.Combine(PinnedModels.EmbeddingModelId, asset.RelativePath)));
     }
 

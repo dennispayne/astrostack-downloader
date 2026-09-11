@@ -230,7 +230,7 @@ public sealed class PrereqInstaller
                 cancellationToken).ConfigureAwait(false);
             if (!redirected.Succeeded)
             {
-                _logger.LogError("Model download verification failed for {Asset}: {Reason}.", asset.RelativePath, redirected.FailureReason);
+                _logger.LogError("Model download redirect verification failed for {Asset}: {Reason}.", asset.RelativePath, redirected.FailureReason);
                 return null;
             }
 
