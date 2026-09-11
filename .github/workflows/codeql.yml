@@ -34,7 +34,7 @@ jobs:
             build-mode: autobuild
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # `main` has no .NET solution yet (it arrives via PR #1). Skip the C# scan rather than
       # failing CI on a language with nothing to analyze; this turns on automatically once a
@@ -93,7 +93,7 @@ jobs:
 
       - name: Upload summary fragment
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codeql-summary-${{ matrix.language }}
           path: codeql-summary-${{ matrix.language }}.md
@@ -107,7 +107,7 @@ jobs:
     if: always()
     steps:
       - name: Download summary fragments
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: codeql-summary-*
           path: fragments
