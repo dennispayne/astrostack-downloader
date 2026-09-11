@@ -116,7 +116,7 @@ public sealed class CommandLineParserTests
         string[] expected =
         [
             "fetch", "resolve", "add", "remove", "status", "export", "import", "refresh", "prereqs",
-            "verify", "recipes", "list", "diagnostics",
+            "config", "verify", "recipes", "list", "diagnostics",
         ];
 
         Assert.Equal(expected.Order(), CommandLineParser.Commands.Select(c => c.Name).Order());
@@ -170,5 +170,14 @@ public sealed class CommandLineParserTests
 
         Assert.Contains("--include-llm", help, StringComparison.Ordinal);
         Assert.Contains("install|status", help, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Config_supports_scripted_and_interactive_forms()
+    {
+        Assert.False(CommandLineParser.Parse(["config"]).HasErrors);
+        Assert.Equal("set", CommandLineParser.Parse(["config", "set", "outputDirectory", "/tmp/source"]).SubCommand);
+        Assert.False(CommandLineParser.Parse(["config", "--interactive"]).HasErrors);
+        Assert.True(CommandLineParser.FindCommand("config")!.Accepts("--interactive"));
     }
 }

@@ -100,6 +100,33 @@ public sealed class ConfigRedactionTests
         Assert.Equal("https://ai.example/v1", redacted.AiEndpoint);
     }
 
+    public sealed class ConfigSettingsTests
+    {
+        [Fact]
+        public void Setting_and_unsetting_known_values_preserves_the_remaining_configuration()
+        {
+            var original = new WgFetchConfig { Scope = "machine", AiKey = "secret" };
+
+            Assert.True(ConfigSettings.TrySet(original, "parallelDownloads", "4", out var updated, out var error), error);
+            Assert.Equal(4, updated.ParallelDownloads);
+            Assert.Equal("machine", updated.Scope);
+
+            Assert.True(ConfigSettings.TryUnset(updated, "parallelDownloads", out var unset, out error), error);
+            Assert.Null(unset.ParallelDownloads);
+            Assert.Equal("secret", unset.AiKey);
+        }
+
+        [Theory]
+        [InlineData("threshold", "1.01")]
+        [InlineData("keepVersions", "0")]
+        [InlineData("parallelDownloads", "17")]
+        [InlineData("maxPerHost", "0")]
+        public void Rejects_out_of_range_numeric_values(string name, string value)
+        {
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), name, value, out _, out _));
+        }
+    }
+
     [Fact]
     public void Redacted_leaves_absent_secrets_absent()
     {

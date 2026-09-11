@@ -125,15 +125,27 @@ public sealed class PrereqInstaller
         bool dryRun,
         CancellationToken cancellationToken)
     {
+        IReadOnlySet<string> selectedModels = PinnedModels.All
+            .Where(model => includeLanguageModel || !model.IsLanguageModel)
+            .Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
+        return await InstallAsync(modelsRoot, selectedModels, dryRun, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Installs only the selected pinned models, retaining the same digest verification gate.</summary>
+    public async Task<PrereqInstallResult> InstallAsync(
+        string modelsRoot,
+        IReadOnlySet<string> selectedModels,
+        bool dryRun,
+        CancellationToken cancellationToken)
+    {
         var messages = new List<string>();
         var success = true;
         var installed = new List<PrereqInstalledModel>();
 
         foreach (var model in PinnedModels.All)
         {
-            if (model.IsLanguageModel && !includeLanguageModel)
+            if (!selectedModels.Contains(model.Id))
             {
-                messages.Add($"Skipping {model.DisplayName} (pass --include-llm to fetch it).");
                 continue;
             }
 

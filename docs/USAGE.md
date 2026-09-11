@@ -26,6 +26,20 @@ entirely for unchanged vendors.
 
 Precedence is **CLI flag > environment variable > config file > built-in default**.
 
+## Persisted defaults and first-run setup
+
+Use `wgfetch config` with no arguments for the interactive setup menu. It shows persisted values with
+keys masked, includes model installation status, and can install one or all pinned models. It requires
+an attached terminal and exits with code 3 when run non-interactively.
+
+```powershell
+wgfetch config set outputDirectory D:\wgfetch-source
+wgfetch config set modelsRoot D:\wgfetch-models
+wgfetch config get outputDirectory
+wgfetch config list                 # secrets are redacted
+wgfetch config unset outputDirectory
+```
+
 ## The three consumption paths
 
 **winget cannot `source add` a bare folder of manifests.** A directory of YAML files is not a source.

@@ -18,6 +18,89 @@ namespace WgFetch.Core.Cli;
 /// </summary>
 public sealed partial class CommandRunner
 {
+    private static readonly string[] ConfigTableHeader = ["SETTING", "VALUE"];
+
+    private async Task<ExitCode> ConfigAsync(
+        ParsedCommandLine parsed,
+        WgFetchConfig config,
+        CancellationToken cancellationToken)
+    {
+        if (parsed.SubCommand is null || parsed.Has("--interactive"))
+        {
+            return await InteractiveConfigAsync(config, parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        }
+
+        var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;
+        switch (parsed.SubCommand)
+        {
+            case "list":
+                if (parsed.Positional.Count != 0)
+                {
+                    _stderr.WriteLine("wgfetch config list: does not accept arguments.");
+                    return ExitCode.UsageError;
+                }
+
+                var rows = new List<string[]> { ConfigTableHeader };
+                rows.AddRange(ConfigSettings.GetRedactedValues(config).Select(setting => new[] { setting.Name, setting.Value ?? "-" }));
+                Report(RenderTable(rows));
+                return ExitCode.Success;
+
+            case "get":
+                if (parsed.Positional.Count != 1)
+                {
+                    _stderr.WriteLine("wgfetch config get: expected exactly one setting name.");
+                    return ExitCode.UsageError;
+                }
+
+                var value = ConfigSettings.GetRedactedValue(config, parsed.Positional[0], out var getError);
+                if (getError is not null)
+                {
+                    _stderr.WriteLine($"wgfetch config get: {getError}");
+                    return ExitCode.UsageError;
+                }
+
+                Report(value ?? "-");
+                return ExitCode.Success;
+
+            case "set":
+                if (parsed.Positional.Count != 2)
+                {
+                    _stderr.WriteLine("wgfetch config set: expected a setting name and value.");
+                    return ExitCode.UsageError;
+                }
+
+                if (!ConfigSettings.TrySet(config, parsed.Positional[0], parsed.Positional[1], out var updated, out var setError))
+                {
+                    _stderr.WriteLine($"wgfetch config set: {setError}");
+                    return ExitCode.UsageError;
+                }
+
+                await ConfigFile.SaveAsync(updated, path, cancellationToken).ConfigureAwait(false);
+                Report($"{parsed.Positional[0]}: saved");
+                return ExitCode.Success;
+
+            case "unset":
+                if (parsed.Positional.Count != 1)
+                {
+                    _stderr.WriteLine("wgfetch config unset: expected exactly one setting name.");
+                    return ExitCode.UsageError;
+                }
+
+                if (!ConfigSettings.TryUnset(config, parsed.Positional[0], out var without, out var unsetError))
+                {
+                    _stderr.WriteLine($"wgfetch config unset: {unsetError}");
+                    return ExitCode.UsageError;
+                }
+
+                await ConfigFile.SaveAsync(without, path, cancellationToken).ConfigureAwait(false);
+                Report($"{parsed.Positional[0]}: unset");
+                return ExitCode.Success;
+
+            default:
+                return ExitCode.UsageError;
+        }
+    }
+
     private async Task<TargetsDocument> LoadTargetsAsync(RunSettings settings, CancellationToken cancellationToken)
     {
         var path = TargetsPath(settings);

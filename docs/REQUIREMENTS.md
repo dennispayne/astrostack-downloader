@@ -267,6 +267,7 @@ wgfetch export --format astrostack-dsc|applist [--out]
 wgfetch import --format astrostack-dsc <dir>
 wgfetch refresh              # update catalog + embeddings + recipe cache
 wgfetch prereqs install|status
+wgfetch config [set|get|list|unset] # persisted defaults; no args opens the interactive setup menu
 wgfetch verify [--output]    # re-hash artifacts against provenance.json
 wgfetch recipes list|show|export|validate
 wgfetch list [--output]

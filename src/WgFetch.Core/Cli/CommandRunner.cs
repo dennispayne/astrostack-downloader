@@ -153,6 +153,7 @@ public sealed partial class CommandRunner
             "import" => await ImportAsync(parsed, settings, cancellationToken).ConfigureAwait(false),
             "refresh" => await RefreshAsync(settings, cancellationToken).ConfigureAwait(false),
             "prereqs" => await PrereqsAsync(parsed, settings, cancellationToken).ConfigureAwait(false),
+            "config" => await ConfigAsync(parsed, config, cancellationToken).ConfigureAwait(false),
             "verify" => await VerifyAsync(settings, cancellationToken).ConfigureAwait(false),
             "recipes" => await RecipesAsync(parsed, settings, cancellationToken).ConfigureAwait(false),
             "diagnostics" => await DiagnosticsAsync(parsed, settings, config, cancellationToken).ConfigureAwait(false),

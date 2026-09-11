@@ -1,5 +1,6 @@
 using System.Text.Json;
 using WgFetch.Core.Cli;
+using WgFetch.Core.Configuration;
 using WgFetch.Core.Inference;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
@@ -337,6 +338,49 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.MissingPrerequisite, exit);
         Assert.Contains("e5-small-v2", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Config_SetGetListAndUnset_PersistAndRedactSecrets()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        var secret = "config-secret-value";
+
+        var (setter, setOut, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await setter.RunAsync(
+            ["config", "set", "output-directory", temp.Combine("source"), "--config", configPath],
+            CancellationToken.None));
+        Assert.Contains("saved", setOut.ToString(), StringComparison.Ordinal);
+
+        var (secretSetter, _, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await secretSetter.RunAsync(
+            ["config", "set", "aiKey", secret, "--config", configPath],
+            CancellationToken.None));
+
+        var (getter, getOut, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await getter.RunAsync(
+            ["config", "get", "outputDirectory", "--config", configPath],
+            CancellationToken.None));
+        Assert.Contains(temp.Combine("source"), getOut.ToString(), StringComparison.Ordinal);
+
+        var (secretGetter, secretGetOut, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await secretGetter.RunAsync(
+            ["config", "get", "aiKey", "--config", configPath],
+            CancellationToken.None));
+        Assert.Contains("[REDACTED]", secretGetOut.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, secretGetOut.ToString(), StringComparison.Ordinal);
+
+        var (lister, listOut, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await lister.RunAsync(["config", "list", "--config", configPath], CancellationToken.None));
+        Assert.Contains("[REDACTED]", listOut.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, listOut.ToString(), StringComparison.Ordinal);
+
+        var (unsetter, _, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await unsetter.RunAsync(
+            ["config", "unset", "outputDirectory", "--config", configPath],
+            CancellationToken.None));
+        Assert.Null((await ConfigFile.LoadAsync(configPath, CancellationToken.None)).OutputDirectory);
     }
 
     [Fact]
