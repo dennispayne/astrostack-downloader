@@ -38,13 +38,13 @@ jobs:
 
       # `main` has no .NET solution yet (it arrives via PR #1). Skip the C# scan rather than
       # failing CI on a language with nothing to analyze; this turns on automatically once a
-      # .sln/.slnx/.csproj is committed here.
+      # .slnx/.csproj is committed here. (This repo standardizes on .slnx over .sln; see lint.yml.)
       - name: Check for .NET project
         if: matrix.language == 'csharp'
         id: dotnet-check
         shell: bash
         run: |
-          if git ls-files -- '*.sln' '*.slnx' '*.csproj' | grep -q .; then
+          if git ls-files -- '*.slnx' '*.csproj' | grep -q .; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
