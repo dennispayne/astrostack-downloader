@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">wgfetch</title>
+  <description id="description">A verified download arrow landing in an open source tree, beneath a star field.</description>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1026"/>
+      <stop offset="0.55" stop-color="#172554"/>
+      <stop offset="1" stop-color="#312e81"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="0.5" stop-color="#1f2937"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <circle cx="256" cy="256" r="238" fill="url(#sky)" stroke="#4338ca" stroke-width="8"/>
+
+  <g fill="#e0f2fe">
+    <circle cx="113" cy="126" r="4"/>
+    <circle cx="178" cy="77" r="3"/>
+    <circle cx="329" cy="91" r="4"/>
+    <circle cx="402" cy="151" r="3"/>
+    <circle cx="91" cy="231" r="2.5"/>
+    <circle cx="426" cy="258" r="3"/>
+    <circle cx="369" cy="210" r="2.5"/>
+    <circle cx="244" cy="111" r="2"/>
+  </g>
+
+  <path d="M387 78l7 17 17 7-17 7-7 17-7-17-17-7 17-7z" fill="#f8fafc" filter="url(#glow)"/>
+  <path d="M143 173l4 10 10 4-10 4-4 10-4-10-10-4 10-4z" fill="#a5f3fc"/>
+
+  <g stroke="#67e8f9" stroke-width="4" stroke-linecap="round" opacity="0.8">
+    <path d="M101 339L77 363"/>
+    <path d="M411 339l24 24"/>
+    <path d="M256 70V43"/>
+  </g>
+  <g fill="#0f172a" stroke="#a5f3fc" stroke-width="5">
+    <circle cx="69" cy="371" r="13"/>
+    <circle cx="443" cy="371" r="13"/>
+    <circle cx="256" cy="34" r="13"/>
+  </g>
+  <g fill="#67e8f9">
+    <circle cx="69" cy="371" r="4"/>
+    <circle cx="443" cy="371" r="4"/>
+    <circle cx="256" cy="34" r="4"/>
+  </g>
+
+  <path d="M49 405c61-44 116-39 165-10 52-31 119-34 179 4 26-7 48-4 70 6v58H49z" fill="url(#ground)"/>
+
+  <!-- Download beam: a byte-exact payload descending from the star field, gated by verification. -->
+  <path d="M256 96v168" stroke="url(#beam)" stroke-width="18" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M204 224l52 60 52-60" fill="none" stroke="url(#beam)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+
+  <!-- Verification gate shield, sitting at the mouth of the local source tree. -->
+  <g transform="translate(256 318)">
+    <path d="M0-52 46-30v46C46 51 25 74 0 84-25 74-46 51-46 16v-46z" fill="#111827" stroke="#a5f3fc" stroke-width="8"/>
+    <path d="M0-52 46-30v46C46 51 25 74 0 84-25 74-46 51-46 16v-46z" fill="none" stroke="#6366f1" stroke-width="3" opacity="0.6"/>
+    <path d="M-20 8l14 15 28-34" fill="none" stroke="#67e8f9" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Local source tree the verified artifact lands in. -->
+  <g stroke="#cbd5e1" stroke-width="10" stroke-linecap="round" fill="none">
+    <path d="M148 431v-24a18 18 0 0 1 18-18h30"/>
+    <path d="M364 431v-24a18 18 0 0 1-18-18h-30"/>
+  </g>
+  <g fill="#94a3b8">
+    <rect x="138" y="396" width="24" height="18" rx="4"/>
+    <rect x="350" y="396" width="24" height="18" rx="4"/>
+  </g>
+</svg>
