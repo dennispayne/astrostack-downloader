@@ -135,6 +135,130 @@ jobs:
       - name: Live tests
         run: dotnet test wgfetch.slnx -c Release --filter "Category=Live"
 
+  reference-hardware:
+    name: Reference hardware approximation (no AVX2, 4 cores, 8GB RAM)
+    runs-on: ubuntu-latest
+    needs: test
+    # Scheduled/manual only, like the live and weights tiers: this approximates ISA/core/RAM
+    # compatibility, not wall-clock performance on real N5105-class hardware.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    container:
+      image: mcr.microsoft.com/dotnet/sdk:10.0
+      options: --cpus=4 --memory=8g
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Confirm CPU and memory limits
+        id: limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          cpu_max="$(cat /sys/fs/cgroup/cpu.max)"
+          quota="${cpu_max%% *}"
+          period="${cpu_max##* }"
+          if [ "$quota" = "max" ]; then
+            echo "::error::CPU quota is unlimited (expected --cpus=4)."
+            exit 1
+          fi
+          cpu_limit="$(awk -v q="$quota" -v p="$period" 'BEGIN { printf "%.2f", q / p }')"
+          awk -v limit="$cpu_limit" 'BEGIN { if (limit > 4.01) exit 1 }' || {
+            echo "::error::CPU limit is ${cpu_limit}, expected <= 4.00"
+            exit 1
+          }
+
+          memory_max_bytes="$(cat /sys/fs/cgroup/memory.max)"
+          if [ "$memory_max_bytes" = "max" ]; then
+            echo "::error::Memory limit is unlimited (expected --memory=8g)."
+            exit 1
+          fi
+          if [ "$memory_max_bytes" -gt 8589934592 ]; then
+            echo "::error::Memory limit is ${memory_max_bytes} bytes, expected <= 8589934592 (8 GiB)."
+            exit 1
+          fi
+
+          echo "nproc=$(nproc)" >> "$GITHUB_OUTPUT"
+          echo "cpu_limit=${cpu_limit}" >> "$GITHUB_OUTPUT"
+          echo "memory_max_bytes=${memory_max_bytes}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Intel SDE prerequisites
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl xz-utils
+          rm -rf /var/lib/apt/lists/*
+
+      - name: Download Intel SDE (Linux)
+        id: sde
+        shell: bash
+        run: |
+          set -euo pipefail
+          page_url="https://www.intel.com/content/www/us/en/download/684897/intel-software-development-emulator.html"
+          sde_url="$(curl -fsSL "$page_url" | grep -Po 'https://downloadmirror.intel.com/[^" ]*lin\.tar\.xz' | head -n1)"
+          if [ -z "$sde_url" ]; then
+            echo "::error::Unable to discover Intel SDE Linux tarball URL from ${page_url}."
+            exit 1
+          fi
+
+          curl -fsSL "$sde_url" -o /tmp/intel-sde.tar.xz
+          tar -xf /tmp/intel-sde.tar.xz -C /tmp
+
+          sde_bin="$(find /tmp -type f -name sde64 | head -n1)"
+          if [ -z "$sde_bin" ]; then
+            echo "::error::Downloaded Intel SDE archive did not contain sde64."
+            exit 1
+          fi
+
+          chmod +x "$sde_bin"
+          echo "sde_url=${sde_url}" >> "$GITHUB_OUTPUT"
+          echo "SDE_BIN=${sde_bin}" >> "$GITHUB_ENV"
+
+      - name: Publish NativeAOT Linux binary
+        shell: bash
+        run: |
+          dotnet publish src/WgFetch.Cli/WgFetch.Cli.csproj \
+            -c Release \
+            -r linux-x64 \
+            --self-contained true \
+            -p:PublishAot=true \
+            -o artifacts/publish/linux-x64
+          binary="${GITHUB_WORKSPACE}/artifacts/publish/linux-x64/wgfetch"
+          test -x "$binary"
+          echo "WGFETCH_PUBLISHED_BINARY=${binary}" >> "$GITHUB_ENV"
+
+      - name: Create Intel SDE launcher wrapper
+        shell: bash
+        run: |
+          cat > /tmp/wgfetch-under-sde <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec "${SDE_BIN}" -nhm -- "${WGFETCH_PUBLISHED_BINARY}" "$@"
+          EOF
+          chmod +x /tmp/wgfetch-under-sde
+          echo "WGFETCH_AOT_BINARY=/tmp/wgfetch-under-sde" >> "$GITHUB_ENV"
+
+      - name: NativeAOT smoke tests under Intel SDE
+        id: aot-sde
+        run: dotnet test wgfetch.slnx -c Release --filter "Category=Aot"
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          case "${{ steps.aot-sde.outcome }}" in
+            success) sde_status="✅ pass"; sde_note="published Linux NativeAOT binary executed under Intel SDE (-nhm)" ;;
+            failure) sde_status="❌ fail"; sde_note="see 'NativeAOT smoke tests under Intel SDE' step logs" ;;
+            *)       sde_status="⏭️ skipped"; sde_note="smoke tests did not run" ;;
+          esac
+          {
+            echo "## Reference hardware approximation"
+            echo
+            echo "| Check | Status | Note |"
+            echo "|---|---|---|"
+            echo "| CPU quota | ✅ | \`--cpus=4\`, cgroup limit=${{ steps.limits.outputs.cpu_limit }}, nproc=${{ steps.limits.outputs.nproc }} |"
+            echo "| Memory ceiling | ✅ | \`--memory=8g\`, cgroup memory.max=${{ steps.limits.outputs.memory_max_bytes }} bytes |"
+            echo "| No-AVX2 execution | ${sde_status} | ${sde_note}; Intel SDE: ${{ steps.sde.outputs.sde_url }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   weights:
     name: Pinned model weights (real download, digest re-verified)
     runs-on: ubuntu-latest
@@ -218,4 +342,3 @@ jobs:
             echo "| Cache | ${{ steps.weights-cache.outputs.cache-hit == 'true' && '♻️ hit' || '⬇️ miss (full download)' }} | keyed on \`PinnedModels.cs\` |"
             echo "| SHA256 re-verification | ${status} | ${note} |"
           } >> "$GITHUB_STEP_SUMMARY"
-
