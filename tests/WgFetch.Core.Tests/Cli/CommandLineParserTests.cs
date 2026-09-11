@@ -74,6 +74,15 @@ public sealed class CommandLineParserTests
     }
 
     [Fact]
+    public void Prereqs_accepts_models_root()
+    {
+        var parsed = CommandLineParser.Parse(["prereqs", "install", "--models-root", "/tmp/models"]);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal("/tmp/models", parsed.Value("--models-root"));
+    }
+
+    [Fact]
     public void Verbose_implies_debug_logging()
     {
         var parsed = CommandLineParser.Parse(["fetch", "nina", "--verbose"]);
