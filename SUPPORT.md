@@ -14,13 +14,10 @@ level agreement, but questions are welcome.
 
 | You want to | Go to |
 | --- | --- |
-| Ask a usage question or discuss an idea | [Discussions](https://github.com/dennispayne/astrostack-downloader/discussions) |
+| Ask a usage question or discuss an idea | [New issue](https://github.com/dennispayne/astrostack-downloader/issues/new/choose) — say up front that it is a question rather than a bug report |
 | Report a bug or request a feature | [New issue](https://github.com/dennispayne/astrostack-downloader/issues/new/choose) |
 | Report a security vulnerability | [`SECURITY.md`](SECURITY.md) — **never** a public issue |
 | Contribute a change | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
-
-If Discussions is not enabled for this repository, open a regular issue instead and say up front
-that it is a question rather than a bug report.
 
 ## Helping us help you
 
