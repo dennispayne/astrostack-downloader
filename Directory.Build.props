@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Applies repo-wide to every .csproj under this directory, including the projects that land
+    with PR #1. Kept deliberately non-breaking: analyzers run and code-style violations surface
+    as build warnings, but nothing here is elevated to an error so a pre-existing intentional
+    warning (e.g. the AOT-trimming IL3050 notice on YamlDotNet) doesn't fail the build.
+  -->
+  <PropertyGroup>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
