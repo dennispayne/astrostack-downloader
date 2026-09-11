@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 using WgFetch.Core.Abstractions;
 using WgFetch.Core.Catalog;
 using WgFetch.Core.Configuration;
@@ -8,7 +9,9 @@ using WgFetch.Core.Logging;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
 using WgFetch.Core.Progress;
+using WgFetch.Core.Prereqs;
 using WgFetch.Core.Recipes;
+using WgFetch.Core.Targets;
 
 namespace WgFetch.Core.Cli;
 
@@ -72,6 +75,12 @@ public sealed partial class CommandRunner
         ArgumentNullException.ThrowIfNull(args);
 
         var parsed = CommandLineParser.Parse(args);
+
+        if (parsed.Command is null && !parsed.HelpRequested && !parsed.VersionRequested &&
+            parsed.Errors.Count == 1 && parsed.Errors[0] == "no command given")
+        {
+            return await ShowLandingAsync(parsed, cancellationToken).ConfigureAwait(false);
+        }
 
         // --help, --version and argument errors must be fast and must never load a model.
         if (parsed.HelpRequested)
@@ -165,6 +174,41 @@ public sealed partial class CommandRunner
         }
 
         return exitCode;
+    }
+
+    private async Task<ExitCode> ShowLandingAsync(ParsedCommandLine parsed, CancellationToken cancellationToken)
+    {
+        var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
+        var environment = BuildTerminalEnvironment(settings);
+        var terminal = TerminalCapability.Detect(environment);
+
+        if (settings.Json || environment.OutputRedirected || environment.ErrorRedirected)
+        {
+            return ExitCode.UsageError;
+        }
+
+        TargetsDocument? targets = null;
+        var targetsPath = TargetsPath(settings);
+        if (File.Exists(targetsPath))
+        {
+            targets = await TargetsFile.LoadAsync(targetsPath, cancellationToken).ConfigureAwait(false);
+        }
+
+        var prerequisitesInstalled = File.Exists(Path.Combine(settings.ModelsRoot, "install-manifest.json"));
+        if (terminal == TerminalMode.Interactive)
+        {
+            AnsiConsole.Console.Write(SplashScreen.CreateInteractive(targets, settings.OutputDirectory, prerequisitesInstalled));
+            AnsiConsole.Console.WriteLine();
+        }
+        else
+        {
+            SplashScreen.WritePlain(_stdout, targets, settings.OutputDirectory, prerequisitesInstalled);
+        }
+
+        _stdout.WriteLine();
+        _stdout.Write(CommandLineParser.RenderHelp());
+        return ExitCode.Success;
     }
 
     private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings)
