@@ -159,6 +159,10 @@ public sealed class CommandLineParserTests
 
         Assert.Contains("Usage: wgfetch <command> [options]", help, StringComparison.Ordinal);
         Assert.All(CommandLineParser.Commands, c => Assert.Contains(c.Name, help, StringComparison.Ordinal));
+        Assert.Contains(
+            "  recipes list|show|export|validate  Inspect bundled and cached recipes",
+            help,
+            StringComparison.Ordinal);
         Assert.Contains("no telemetry", help, StringComparison.Ordinal);
         Assert.DoesNotContain('\u001b', help);
     }
@@ -169,6 +173,7 @@ public sealed class CommandLineParserTests
         var help = CommandLineParser.RenderHelp("prereqs");
 
         Assert.Contains("--include-llm", help, StringComparison.Ordinal);
+        Assert.Contains("  --include-llm           also fetch Phi-3.5-mini", help, StringComparison.Ordinal);
         Assert.Contains("install|status", help, StringComparison.Ordinal);
     }
 }

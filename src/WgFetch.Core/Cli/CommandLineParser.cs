@@ -307,7 +307,7 @@ public static class CommandLineParser
             foreach (var c in Commands)
             {
                 var name = c.SubCommands.Count > 0 ? $"{c.Name} {string.Join('|', c.SubCommands)}" : c.Name;
-                writer.WriteLine($"  {name,-28}{c.Summary}");
+                writer.WriteLine($"  {name}{new string(' ', Math.Max(2, 28 - name.Length))}{c.Summary}");
             }
 
             writer.WriteLine();
@@ -326,7 +326,7 @@ public static class CommandLineParser
         writer.WriteLine("Options:");
         foreach (var option in spec.Options)
         {
-            writer.WriteLine($"  {option.Name,-24}{option.Description}");
+            writer.WriteLine($"  {option.Name}{new string(' ', Math.Max(2, 24 - option.Name.Length))}{option.Description}");
         }
 
         return writer.ToString();
