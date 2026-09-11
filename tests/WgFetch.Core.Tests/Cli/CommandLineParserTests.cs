@@ -1,4 +1,5 @@
 using WgFetch.Core.Cli;
+using WgFetch.Core.Configuration;
 
 namespace WgFetch.Core.Tests.Cli;
 
@@ -76,10 +77,18 @@ public sealed class CommandLineParserTests
     [Fact]
     public void Prereqs_accepts_models_root()
     {
-        var parsed = CommandLineParser.Parse(["prereqs", "install", "--models-root", "/tmp/models"]);
+        var root = Path.GetFullPath("/tmp/models-root");
+        var alias = Path.GetFullPath("/tmp/models-dir");
 
-        Assert.False(parsed.HasErrors);
-        Assert.Equal("/tmp/models", parsed.Value("--models-root"));
+        var canonical = CommandLineParser.Parse(["prereqs", "install", "--models-root", root]);
+        var legacy = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias]);
+        var both = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias, "--models-root", root]);
+
+        Assert.False(canonical.HasErrors);
+        Assert.False(legacy.HasErrors);
+        Assert.Equal(root, RunSettings.Resolve(canonical, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(alias, RunSettings.Resolve(legacy, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(root, RunSettings.Resolve(both, new WgFetchConfig()).ModelsRoot);
     }
 
     [Fact]
