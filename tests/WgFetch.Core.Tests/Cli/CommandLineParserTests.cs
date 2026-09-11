@@ -77,8 +77,8 @@ public sealed class CommandLineParserTests
     [Fact]
     public void Prereqs_accepts_models_root()
     {
-        var root = Path.GetFullPath("/tmp/models-root");
-        var alias = Path.GetFullPath("/tmp/models-dir");
+        var root = Path.Combine(Path.GetTempPath(), "wgfetch-models-root");
+        var alias = Path.Combine(Path.GetTempPath(), "wgfetch-models-dir");
 
         var canonical = CommandLineParser.Parse(["prereqs", "install", "--models-root", root]);
         var legacy = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias]);
