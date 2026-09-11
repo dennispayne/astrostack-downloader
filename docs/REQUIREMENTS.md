@@ -341,31 +341,49 @@ No authenticated or paid-app acquisition. No credential storage. No telemetry of
 Recorded per the instruction above: *"If a requirement here proves impossible or contradictory, stop
 and record the conflict in `docs/REQUIREMENTS.md` rather than quietly choosing an alternative."*
 
-### 1. Model digests are pinned, but from Hugging Face metadata rather than locally hashed bytes
+### 1. RESOLVED — model digests are pinned and every one is verified against locally hashed bytes
 
 **Requirement.** *"Prerequisites — frictionless first run"* requires `wgfetch prereqs install` to verify
 each downloaded model against **SHA256 hashes compiled into the binary**, and to hard-fail on mismatch.
 
-**Conflict.** `huggingface.co` itself is now reachable from the implementation environment, but Hugging
-Face serves large (LFS/Xet-backed) blobs by redirecting to a CDN host — currently
-`us.aws.cdn.hf.co` — which does not resolve here. The two multi-hundred-megabyte weight files therefore
-still cannot be downloaded and hashed locally. The legacy `cdn-lfs.huggingface.co` host no longer serves
-these objects, so allowlisting it does not help.
+**Former conflict.** Hugging Face serves large (LFS/Xet-backed) blobs by redirecting from
+`huggingface.co` to a CDN host — currently `us.aws.cdn.hf.co`. That host did not resolve from the
+implementation environment, so the three multi-hundred-megabyte weight files could not be downloaded
+and hashed locally; their digests were taken from Hugging Face's published git-LFS object id instead.
+The legacy `cdn-lfs.huggingface.co` host no longer serves these objects, so allowlisting it did not
+help.
 
-**Resolution chosen (digests pinned; provenance stated, not hidden).** Every asset in
-`src/WgFetch.Core/Prereqs/PinnedModels.cs` now carries a `Sha256` and a `SizeBytes`, so
-`PrereqInstaller` no longer refuses to install either model. The digests come from two provenances,
-which are **not** equally strong and are recorded here rather than glossed over:
+**Resolution.** `us.aws.cdn.hf.co` has since been allowlisted. All seven pinned assets — including the
+three LFS-backed weight files, among them the 2.7 GB `model.onnx.data` — have now been downloaded in
+full over TLS and hashed locally with `sha256sum`. Every digest matched the value already pinned in
+`src/WgFetch.Core/Prereqs/PinnedModels.cs` byte for byte, so **no constant changed**; what changed is
+the strength of the evidence behind them. The digests are no longer merely asserted by Hugging Face:
 
-| Asset | Digest provenance |
-| --- | --- |
-| `e5-small-v2/tokenizer.json`, `e5-small-v2/vocab.txt`, `phi-3.5-mini-instruct-onnx/genai_config.json`, `phi-3.5-mini-instruct-onnx/tokenizer.json` | Downloaded over TLS and hashed locally with `sha256sum`. |
-| `e5-small-v2/model.onnx`, `phi-3.5-mini-instruct-onnx/model.onnx`, `phi-3.5-mini-instruct-onnx/model.onnx.data` | Hugging Face's published git-LFS object id, which **is** the SHA256 of the file content. Read over TLS from `huggingface.co` and cross-checked against two independent endpoints: the repository tree API's `lfs.oid`, and the `x-linked-etag` header on the `resolve` redirect. |
+| Asset | Size | Digest provenance |
+| --- | --- | --- |
+| `e5-small-v2/model.onnx` (upstream `onnx/model_O4.onnx`) | 66,578,744 | Downloaded over TLS and hashed locally. Cross-checks with the tree API's `lfs.oid` and the `resolve` redirect's `x-linked-etag` agree. |
+| `e5-small-v2/tokenizer.json` | 711,396 | Downloaded over TLS and hashed locally. |
+| `e5-small-v2/vocab.txt` | 231,508 | Downloaded over TLS and hashed locally. |
+| `phi-3.5-mini-instruct-onnx/model.onnx` | 52,176,615 | Downloaded over TLS and hashed locally. Cross-checks as above agree. |
+| `phi-3.5-mini-instruct-onnx/model.onnx.data` | 2,728,144,896 | Downloaded over TLS and hashed locally. Cross-checks as above agree. |
+| `phi-3.5-mini-instruct-onnx/genai_config.json` | 1,580 | Downloaded over TLS and hashed locally. |
+| `phi-3.5-mini-instruct-onnx/tokenizer.json` | 1,844,436 | Downloaded over TLS and hashed locally. |
 
-The second row means the weight digests are asserted by Hugging Face, not verified against bytes on a
-machine we control. That is strictly better than shipping no pin — the installer will now hard-fail if
-the CDN ever serves different bytes — but it is weaker than an independently hashed pin, and it should
-be confirmed the first time the weights are fetched on a trusted machine or by the `weights` CI job.
+This closes the gap that motivated recording the conflict. The section is retained rather than deleted
+because it documents why the pins are trustworthy and how to re-establish that trust if the pinned
+revisions are ever bumped: **re-hash the bytes, do not copy the LFS oid.**
+
+**Open question deliberately left open — `model_O4` is fp16.** Now that the file can be inspected,
+`onnx/model_O4.onnx` is confirmed to hold **211 FLOAT16 initializers and 15 `Cast` nodes** (507 nodes
+total); in `optimum`'s naming, `O4` is `O3` *plus* fp16 conversion, which is a GPU-oriented
+optimization. The N5105 reference box has no AVX512-FP16, so ONNX Runtime will convert those weights
+to fp32 at inference time and this build may be *slower* than the plain fp32 top-level `model.onnx`
+(133,093,468 bytes, SHA256 `4b8205be2a3c5fc53c6534d76a2012064f7309c162b806f2889c6ec8ec4fdcba`, 197
+FLOAT initializers, 1 `Cast` node — also now verified locally, so swapping the pin is a one-line
+change). `model_O4` is kept for now because it was the variant explicitly chosen, and because the
+choice cannot be settled without a benchmark on the reference hardware, which conflict (2) currently
+prevents. **Measure before switching.** The int8 build remains ruled out: it requires AVX512-VNNI,
+which the N5105 does not have.
 
 **Two related corrections made at the same time.**
 
@@ -391,10 +409,15 @@ URLs and re-checks every file's SHA256 against the pinned constant. It caches on
 `Microsoft.ML.OnnxRuntimeGenAI` — E5-small-v2 for embedding-based name resolution and
 Phi-3.5-mini-instruct-onnx for the fallback tier.
 
-**Conflict.** Conflict (1) leaves the pinned weights unobtainable in this environment, so an
-ONNX-backed `IEmbeddingModel` / `ITextGenerator` could be neither exercised nor tested here. Adding the
-runtime packages without a single executable path would ship ~200 MB of native dependencies into the
-NativeAOT publish that no test could reach, and would misreport the project's real state.
+**Conflict.** This was originally blocked by conflict (1): the pinned weights could not be obtained in
+this environment, so an ONNX-backed `IEmbeddingModel` / `ITextGenerator` could be neither exercised nor
+tested here. **That environmental blocker is now gone** — the weights download and verify, and
+`nuget.org` serves the `Microsoft.ML.OnnxRuntime` packages. What remains is therefore not a conflict in
+the specification but **work not yet undertaken in this pull request**, recorded here so the gap is not
+mistaken for a completed requirement. Adding the runtime packages without a single executable path
+would ship ~200 MB of native dependencies into the NativeAOT publish that no test could reach, and
+would misreport the project's real state; wiring them properly is a substantial change that deserves
+its own review rather than being appended to this one.
 
 **Current state, stated plainly.** `WgFetch.Core` carries **no `Microsoft.ML.OnnxRuntime` or
 `Microsoft.ML.OnnxRuntimeGenAI` package reference**. What exists today is:
@@ -407,7 +430,8 @@ NativeAOT publish that no test could reach, and would misreport the project's re
 - `PinnedModels` / `PrereqInstaller`, which describe and fail-closed-verify the model assets.
 
 Every model proposal is gated mechanically regardless of which backend produces it, so wiring the ONNX
-backends changes no security behaviour. Completing this requires, on a machine with access to
-`huggingface.co` and `nuget.org`: pinning the digests from conflict (1), adding the two package
+backends changes no security behaviour. Completing this now requires only: adding the two package
 references, implementing the two interfaces over them, and covering them with a `Category=Live` tier.
+The digest pinning that conflict (1) used to block is done, and both `huggingface.co` and `nuget.org`
+are reachable.
 Until then the offline default resolves names via the deterministic tiers only.
