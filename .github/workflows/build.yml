@@ -4,6 +4,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
   schedule:
     # Weekly live-network run to catch recipe rot and upstream drift.
@@ -25,6 +26,10 @@ jobs:
   test:
     name: Build and hermetic tests
     runs-on: ubuntu-latest
+    # Skip while a PR is still a draft (e.g. an agent's blank tracking PR that's about to receive
+    # many incremental pushes); still runs for push/schedule/workflow_dispatch, and fires once the
+    # PR is marked ready for review.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v5
 

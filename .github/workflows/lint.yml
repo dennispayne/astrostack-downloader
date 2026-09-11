@@ -5,6 +5,7 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +19,10 @@ jobs:
   format:
     name: dotnet format / analyzers
     runs-on: ubuntu-latest
+    # Skip while a PR is still a draft (e.g. an agent's blank tracking PR that's about to receive
+    # many incremental pushes); still runs for push/schedule/workflow_dispatch, and fires once the
+    # PR is marked ready for review.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v7
 
