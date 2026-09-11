@@ -1,5 +1,6 @@
 using System.Globalization;
 using WgFetch.Core.Prereqs;
+using WgFetch.Core.Tests.Support;
 using Xunit;
 
 namespace WgFetch.Core.Tests.Prereqs;
@@ -160,5 +161,31 @@ public sealed class PinnedModelsTests
         Assert.False(unpinned.IsPinned);
         Assert.False(blank.IsPinned);
         Assert.False((PinnedModels.Embedding with { Assets = [unpinned] }).FullyPinned);
+    }
+
+    [Fact]
+    public async Task Selective_dry_run_only_reports_the_requested_pinned_model()
+    {
+        using var temp = new TempDirectory();
+        var installer = new PrereqInstaller(new StubHttpGateway());
+
+        var selected = new HashSet<string>([PinnedModels.EmbeddingModelId], StringComparer.Ordinal);
+        var result = await installer.InstallAsync(temp.Path, selected, dryRun: true, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains(result.Messages, message => message.Contains(PinnedModels.EmbeddingModelId, StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Messages, message => message.Contains(PinnedModels.LanguageModelId, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Selective_install_ignores_unknown_model_ids()
+    {
+        using var temp = new TempDirectory();
+        var installer = new PrereqInstaller(new StubHttpGateway());
+
+        var result = await installer.InstallAsync(temp.Path, new HashSet<string>(["unknown"]), dryRun: true, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Empty(result.Messages);
     }
 }

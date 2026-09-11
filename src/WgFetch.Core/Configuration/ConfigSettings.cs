@@ -4,11 +4,11 @@ namespace WgFetch.Core.Configuration;
 /// <summary>Maps the persisted configuration schema to its command-line setting names.</summary>
 public static class ConfigSettings
 {
-    private static readonly HashSet<string> SecretNames = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SecretNames = new(StringComparer.Ordinal)
     {
-        "aiKey",
-        "searchKey",
-        "githubToken",
+        "aikey",
+        "searchkey",
+        "githubtoken",
     };
 
     public static IReadOnlyList<string> Names { get; } =
@@ -18,7 +18,7 @@ public static class ConfigSettings
         "searchEndpoint", "searchKey", "githubToken", "logLevel", "parallelDownloads", "maxPerHost", "plain",
     ];
 
-    public static bool IsSecret(string name) => SecretNames.Contains(name.Replace("-", string.Empty, StringComparison.Ordinal));
+    public static bool IsSecret(string name) => SecretNames.Contains(Normalize(name));
 
     public static bool TrySet(WgFetchConfig config, string name, string value, out WgFetchConfig updated, out string? error)
     {
@@ -155,7 +155,9 @@ public static class ConfigSettings
         }
 
         updated = config;
-        error = $"{name} must be an integer from {minimum} through {maximum}.";
+        error = maximum == int.MaxValue
+            ? $"{name} must be an integer of {minimum} or greater."
+            : $"{name} must be an integer from {minimum} through {maximum}.";
         return false;
     }
 

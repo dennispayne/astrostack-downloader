@@ -6,6 +6,12 @@ namespace WgFetch.Core.Cli;
 
 public sealed partial class CommandRunner
 {
+    private const string ModelPrerequisitesChoice = "Model prerequisites";
+    private const string ExitChoice = "Exit";
+    private const string InstallAllModelsChoice = "Install all pinned models";
+    private const string ChangeModelsRootChoice = "Change models root";
+    private const string BackChoice = "Back";
+
     private async Task<ExitCode> InteractiveConfigAsync(
         WgFetchConfig config,
         string? configuredPath,
@@ -26,13 +32,13 @@ public sealed partial class CommandRunner
             var choice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
                     .Title("Select a setting to edit, or manage model prerequisites")
-                    .AddChoices([.. ConfigSettings.Names, "Model prerequisites", "Exit"]));
-            if (choice == "Exit")
+                    .AddChoices([.. ConfigSettings.Names, ModelPrerequisitesChoice, ExitChoice]));
+            if (choice == ExitChoice)
             {
                 return ExitCode.Success;
             }
 
-            if (choice == "Model prerequisites")
+            if (choice == ModelPrerequisitesChoice)
             {
                 var prereqExit = await ManagePrerequisitesAsync(current, path, cancellationToken).ConfigureAwait(false);
                 if (prereqExit != ExitCode.Success)
@@ -119,14 +125,14 @@ public sealed partial class CommandRunner
             model => model.Id,
             StringComparer.Ordinal);
         var choices = installChoices.Keys
-            .Append("Install all pinned models").Append("Change models root").Append("Back").ToArray();
+            .Append(InstallAllModelsChoice).Append(ChangeModelsRootChoice).Append(BackChoice).ToArray();
         var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Model action").AddChoices(choices));
-        if (choice == "Back")
+        if (choice == BackChoice)
         {
             return ExitCode.Success;
         }
 
-        if (choice == "Change models root")
+        if (choice == ChangeModelsRootChoice)
         {
             var root = AnsiConsole.Prompt(new TextPrompt<string>("Models root"));
             if (string.IsNullOrWhiteSpace(root))
@@ -154,18 +160,16 @@ public sealed partial class CommandRunner
             return ExitCode.Success;
         }
 
-        IReadOnlySet<string> selected = choice == "Install all pinned models"
+        IReadOnlySet<string> selected = choice == InstallAllModelsChoice
             ? PinnedModels.All.Select(model => model.Id).ToHashSet(StringComparer.Ordinal)
             : new HashSet<string>([installChoices[choice]], StringComparer.Ordinal);
         PrereqInstallResult? result = null;
-        await AnsiConsole.Progress()
-            .StartAsync(async context =>
+        await AnsiConsole.Status()
+            .StartAsync("Installing pinned model files...", async _ =>
             {
-                var task = context.AddTask("Installing pinned model files");
                 result = await new PrereqInstaller(CreateHttpGateway(), _logger)
                     .InstallAsync(modelsRoot, selected, dryRun: false, cancellationToken)
                     .ConfigureAwait(false);
-                task.Value = 100;
             })
             .ConfigureAwait(false);
 
