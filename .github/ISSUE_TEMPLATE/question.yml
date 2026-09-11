@@ -1,0 +1,44 @@
+name: Question or usage help
+description: Ask how to use wgfetch
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For security vulnerabilities, do not open a public issue. Follow
+        [SECURITY.md](https://github.com/dennispayne/astrostack-downloader/blob/main/SECURITY.md)
+        and use private vulnerability reporting instead.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+        - label: I have redacted any API keys or tokens from the command and all other pasted text.
+          required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and where are you stuck?
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command line you ran, if applicable.
+      render: shell
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output or logs
+      description: Relevant log, error or `--json` output, with secrets redacted.
+      render: shell

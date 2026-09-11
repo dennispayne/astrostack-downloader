@@ -1,0 +1,46 @@
+name: Feature request
+description: Suggest a new capability or an improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `docs/REQUIREMENTS.md` is the authoritative specification. Please check it first — some
+        behaviour that looks missing is deliberately out of scope (for example authenticated or
+        licensed acquisition, which is P1 and intentionally unimplemented).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched the existing issues and this is not a duplicate.
+          required: true
+        - label: I checked `docs/REQUIREMENTS.md` and this is not already specified or explicitly out of scope.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do that wgfetch makes hard or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should wgfetch do instead? Include the CLI surface you imagine, if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
