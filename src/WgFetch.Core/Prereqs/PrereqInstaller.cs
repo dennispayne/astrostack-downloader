@@ -128,7 +128,10 @@ public sealed class PrereqInstaller
         IReadOnlySet<string> selectedModels = PinnedModels.All
             .Where(model => includeLanguageModel || !model.IsLanguageModel)
             .Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
-        return await InstallAsync(modelsRoot, selectedModels, dryRun, cancellationToken).ConfigureAwait(false);
+        var result = await InstallAsync(modelsRoot, selectedModels, dryRun, cancellationToken).ConfigureAwait(false);
+        return includeLanguageModel
+            ? result
+            : result with { Messages = [.. result.Messages, $"Skipping {PinnedModels.LanguageModel.DisplayName} (pass --include-llm to fetch it)."] };
     }
 
     /// <summary>Installs only the selected pinned models, retaining the same digest verification gate.</summary>

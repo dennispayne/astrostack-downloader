@@ -97,6 +97,7 @@ public sealed partial class CommandRunner
                 return ExitCode.Success;
 
             default:
+                _stderr.WriteLine($"wgfetch config: unknown subcommand '{parsed.SubCommand}' (expected set|get|list|unset).");
                 return ExitCode.UsageError;
         }
     }

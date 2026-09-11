@@ -114,11 +114,12 @@ public sealed partial class CommandRunner
         }
 
         AnsiConsole.Write(table);
-        var choices = PinnedModels.All.Select(model => $"Install {model.Id}")
-            .Append("Install all pinned models")
-            .Append("Change models root")
-            .Append("Back")
-            .ToArray();
+        var installChoices = PinnedModels.All.ToDictionary(
+            model => $"Install {model.Id}",
+            model => model.Id,
+            StringComparer.Ordinal);
+        var choices = installChoices.Keys
+            .Append("Install all pinned models").Append("Change models root").Append("Back").ToArray();
         var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Model action").AddChoices(choices));
         if (choice == "Back")
         {
@@ -143,14 +144,19 @@ public sealed partial class CommandRunner
                 return ExitCode.Success;
             }
 
-            ConfigSettings.TrySet(config, "modelsRoot", root, out var updated, out _);
+            if (!ConfigSettings.TrySet(config, "modelsRoot", root, out var updated, out var error))
+            {
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(error!)}[/]");
+                return ExitCode.UsageError;
+            }
+
             await ConfigFile.SaveAsync(updated, configPath, cancellationToken).ConfigureAwait(false);
             return ExitCode.Success;
         }
 
         IReadOnlySet<string> selected = choice == "Install all pinned models"
             ? PinnedModels.All.Select(model => model.Id).ToHashSet(StringComparer.Ordinal)
-            : new HashSet<string>([choice["Install ".Length..]], StringComparer.Ordinal);
+            : new HashSet<string>([installChoices[choice]], StringComparer.Ordinal);
         PrereqInstallResult? result = null;
         await AnsiConsole.Progress()
             .StartAsync(async context =>

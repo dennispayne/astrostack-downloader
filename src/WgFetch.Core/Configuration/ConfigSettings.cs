@@ -146,7 +146,9 @@ public static class ConfigSettings
             return true;
         }
 
-        updated = config; error = "value must be an integer."; return false;
+        updated = config;
+        error = $"value must be an integer from {minimum} through {maximum}.";
+        return false;
     }
 
     private static bool SetBool(WgFetchConfig config, string value, out WgFetchConfig updated, out string? error)
