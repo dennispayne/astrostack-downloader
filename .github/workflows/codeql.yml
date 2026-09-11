@@ -62,7 +62,65 @@ jobs:
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis
+        id: analyze
         if: matrix.language != 'csharp' || steps.dotnet-check.outputs.present == 'true'
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          skipped="false"
+          if [ "${{ matrix.language == 'csharp' && steps.dotnet-check.outputs.present != 'true' }}" = "true" ]; then
+            skipped="true"
+          fi
+
+          {
+            echo "### CodeQL: ${{ matrix.language }}"
+            echo
+            if [ "$skipped" = "true" ]; then
+              echo "| Language | Status | Note |"
+              echo "|---|---|---|"
+              echo "| ${{ matrix.language }} | ⏭️ skipped | no .sln/.slnx/.csproj on this branch yet |"
+            else
+              echo "| Language | Status |"
+              echo "|---|---|"
+              echo "| ${{ matrix.language }} | ${{ job.status == 'success' && '✅ success' || '❌ failure' }} |"
+            fi
+          } | tee "codeql-summary-${{ matrix.language }}.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload summary fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-summary-${{ matrix.language }}
+          path: codeql-summary-${{ matrix.language }}.md
+          if-no-files-found: warn
+          retention-days: 7
+
+  rollup:
+    name: CodeQL summary (all languages)
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: always()
+    steps:
+      - name: Download summary fragments
+        uses: actions/download-artifact@v4
+        with:
+          pattern: codeql-summary-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Build rollup summary
+        shell: bash
+        run: |
+          {
+            echo "## CodeQL rollup"
+            echo
+            for f in fragments/*.md; do
+              [ -f "$f" ] && cat "$f" && echo
+            done
+            echo "**Overall:** ${{ needs.analyze.result == 'success' && '✅ all languages passed' || needs.analyze.result == 'skipped' && '⏭️ skipped' || '❌ one or more languages failed' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
