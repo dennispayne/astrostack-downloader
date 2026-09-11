@@ -289,7 +289,7 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync(arguments, CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("failed to parse targets.yaml", json ? stdout.ToString() : stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("failed to parse targets file", json ? stdout.ToString() : stderr.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("Unhandled exception", stderr.ToString(), StringComparison.Ordinal);
 
         if (json)

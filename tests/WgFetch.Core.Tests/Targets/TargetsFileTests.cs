@@ -208,13 +208,23 @@ public class TargetsFileTests
             var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
 
             Assert.Equal(path, exception.Path);
-            Assert.Contains("failed to parse targets.yaml", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
             Assert.DoesNotContain('\n', exception.Message);
         }
         finally
         {
             File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void Parse_MalformedYaml_ThrowsTargetsFileException()
+    {
+        var exception = Assert.Throws<TargetsFileException>(
+            () => TargetsFile.Parse("targets: [this is: not valid: yaml:::"));
+
+        Assert.Null(exception.Path);
+        Assert.IsType<YamlDotNet.Core.SemanticErrorException>(exception.InnerException);
     }
 
     [Fact]

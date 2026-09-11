@@ -37,23 +37,23 @@ public static class TargetsFile
         }
 
         string text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        return Parse(text, path);
+    }
+
+    /// <summary>Parses <c>targets.yaml</c> content already read into memory.</summary>
+    public static TargetsDocument Parse(string yamlText) => Parse(yamlText, null);
+
+    private static TargetsDocument Parse(string yamlText, string? path)
+    {
+        var stream = new YamlStream();
         try
         {
-            return Parse(text);
+            using var reader = new StringReader(yamlText);
+            stream.Load(reader);
         }
         catch (YamlException ex)
         {
             throw new TargetsFileException(path, ex);
-        }
-    }
-
-    /// <summary>Parses <c>targets.yaml</c> content already read into memory.</summary>
-    public static TargetsDocument Parse(string yamlText)
-    {
-        var stream = new YamlStream();
-        using (var reader = new StringReader(yamlText))
-        {
-            stream.Load(reader);
         }
 
         var doc = new TargetsDocument { Targets = new List<TargetEntry>() };
@@ -342,16 +342,19 @@ public static class TargetsFile
     public static IReadOnlyList<string> KnownEntryFieldOrder => KnownEntryKeysInOrder;
 }
 
+/// <summary>Indicates that a <c>targets.yaml</c> document could not be parsed.</summary>
 public sealed class TargetsFileException : Exception
 {
-    public TargetsFileException(string path, YamlException innerException)
+    /// <summary>Initializes a parse error for an optional source <paramref name="path"/>.</summary>
+    public TargetsFileException(string? path, YamlException innerException)
         : base(
-            $"failed to parse targets.yaml '{path}': " +
+            $"failed to parse targets file{(path is null ? string.Empty : $" '{path}'")}: " +
             innerException.Message.ReplaceLineEndings(" "),
             innerException)
     {
         Path = path;
     }
 
-    public string Path { get; }
+    /// <summary>Gets the source path, when the YAML was loaded from a file.</summary>
+    public string? Path { get; }
 }
