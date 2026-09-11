@@ -71,17 +71,17 @@ public sealed record SessionReport
 /// </summary>
 public interface IProgressRenderer : IAsyncDisposable
 {
-    void StartTarget(string target);
+    public void StartTarget(string target);
 
-    void Update(string target, AcquisitionPhase phase, string? detail = null, double? fraction = null);
+    public void Update(string target, AcquisitionPhase phase, string? detail = null, double? fraction = null);
 
-    void Complete(string target, AcquisitionPhase phase, string? detail = null);
+    public void Complete(string target, AcquisitionPhase phase, string? detail = null);
 
-    void Warn(string message);
+    public void Warn(string message);
 
-    void Error(string message);
+    public void Error(string message);
 
-    void Report(SessionReport report);
+    public void Report(SessionReport report);
 }
 
 /// <summary>

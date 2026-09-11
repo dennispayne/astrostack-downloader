@@ -14,7 +14,7 @@ public interface IOpenAiChatClient
     /// Posts a chat/completions request. <paramref name="apiKeyHeaderValue"/>, if supplied, is sent
     /// as a bearer <c>Authorization</c> header; callers must never log its value.
     /// </summary>
-    Task<string> PostChatCompletionAsync(
+    public Task<string> PostChatCompletionAsync(
         Uri endpoint,
         string jsonBody,
         string? apiKeyHeaderValue,

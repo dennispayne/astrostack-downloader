@@ -1,6 +1,6 @@
+using WgFetch.Core.Targets;
 using YamlDotNet.Core.Events;
 using YamlDotNet.RepresentationModel;
-using WgFetch.Core.Targets;
 
 namespace WgFetch.Core.Export;
 

@@ -72,7 +72,7 @@ public sealed record StageOutcome
 /// <summary>One stage of the ordered discovery pipeline (docs/REQUIREMENTS.md, "Discovery pipeline").</summary>
 public interface IDiscoveryStage
 {
-    DiscoveryStage Stage { get; }
+    public DiscoveryStage Stage { get; }
 
-    Task<StageOutcome> TryResolveAsync(DiscoveryRequest request, CancellationToken cancellationToken);
+    public Task<StageOutcome> TryResolveAsync(DiscoveryRequest request, CancellationToken cancellationToken);
 }

@@ -98,5 +98,5 @@ public sealed class HttpResponseSpec : IAsyncDisposable
 /// </summary>
 public interface IHttpGateway
 {
-    Task<HttpResponseSpec> SendAsync(HttpRequestSpec request, CancellationToken cancellationToken);
+    public Task<HttpResponseSpec> SendAsync(HttpRequestSpec request, CancellationToken cancellationToken);
 }

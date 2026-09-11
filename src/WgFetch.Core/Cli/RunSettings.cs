@@ -1,9 +1,8 @@
 using Microsoft.Extensions.Logging;
 using WgFetch.Core.Configuration;
 using WgFetch.Core.Inference;
-using WgFetch.Core.Output;
-
 using WgFetch.Core.Logging;
+using WgFetch.Core.Output;
 
 namespace WgFetch.Core.Cli;
 

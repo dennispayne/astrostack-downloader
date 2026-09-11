@@ -12,5 +12,5 @@ public interface ITextGenerator
     /// Generates a short structured completion for <paramref name="prompt"/>. <paramref name="onProgress"/>,
     /// if supplied, is invoked with incremental output chunks as they become available.
     /// </summary>
-    Task<string> GenerateAsync(string prompt, Action<string>? onProgress, CancellationToken cancellationToken);
+    public Task<string> GenerateAsync(string prompt, Action<string>? onProgress, CancellationToken cancellationToken);
 }

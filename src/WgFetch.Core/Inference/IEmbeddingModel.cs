@@ -15,5 +15,5 @@ public interface IEmbeddingModel
     /// Embeds a batch of already-prefixed strings. Returns one mean-pooled, L2-normalized vector per
     /// input, in input order.
     /// </summary>
-    Task<float[][]> EmbedAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken);
+    public Task<float[][]> EmbedAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken);
 }
