@@ -45,8 +45,8 @@ heavier tiers are tagged and opt-in:
 
 | Filter | What it does |
 | --- | --- |
-| `Category=Live` | Reaches real vendor hosts with range requests only |
-| `Category=Weights` | Loads the real ONNX weights |
+| `Category=Live` | Planned live-network tier; no tests are currently tagged with this category |
+| `Category=Weights` | Planned real-ONNX-weights tier; no tests are currently tagged with this category |
 | `Category=Aot` | Runs against a published NativeAOT binary (`WGFETCH_AOT_BINARY`) |
 
 Formatting is enforced in CI by `dotnet format`; run it before you push:
@@ -68,7 +68,7 @@ dotnet tool run dotnet-stryker -- --config-file stryker-config.json
 1. **The verification gate is not negotiable.** A model may propose candidate URLs; it may never
    authorize a download. Nothing unverified is written to the output tree, the catalog or
    `provenance.json`. Changes to `Verification/`, the download/atomic-rename path or the version
-   comparator require accompanying tests, including adversarial cases.
+   comparator require accompanying tests, including adversarial and property-based cases.
 2. **Privacy is absolute.** No telemetry, analytics, crash reporting, update checks or phone-home —
    not opt-out, absent. Never log secrets; redact keys and tokens everywhere, including
    `--diagnostics` bundles.
@@ -76,8 +76,9 @@ dotnet tool run dotnet-stryker -- --config-file stryker-config.json
    bytes. Rewriting a manifest's `InstallerUrl`/`InstallerSha256` is permitted.
 4. **Human-owned fields in astrostack-dsc components are never overwritten.** `wgfetch` owns
    `downloadUrl`, `downloadFileName`, `sha256`, `verified` and `availableVersion` only.
-5. **Tests are a first-class deliverable.** Untested code is incomplete. No test may reach the
-   network outside the tagged live tier.
+5. **Tests are a first-class deliverable.** Untested code is incomplete. Changes to the
+   verification gate, resume logic or version comparator require adversarial and property-based
+   tests. No test may reach the network outside the tagged live tier.
 
 ## Submitting a pull request
 

@@ -1,13 +1,11 @@
-name: Bug report
-description: Report something wgfetch does wrong
-labels: ["bug"]
+name: Question or usage help
+description: Ask how to use wgfetch
+labels: ["question"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to file a report.
-
-        **Do not report security vulnerabilities here.** Follow
+        For security vulnerabilities, do not open a public issue. Follow
         [SECURITY.md](https://github.com/dennispayne/astrostack-downloader/blob/main/SECURITY.md)
         and use private vulnerability reporting instead.
 
@@ -24,10 +22,10 @@ body:
           required: true
 
   - type: textarea
-    id: what-happened
+    id: question
     attributes:
-      label: What happened?
-      description: What did you expect to happen, and what happened instead?
+      label: Question
+      description: What are you trying to do, and where are you stuck?
     validations:
       required: true
 
@@ -35,10 +33,8 @@ body:
     id: command
     attributes:
       label: Command
-      description: The exact command line you ran.
+      description: The exact command line you ran, if applicable.
       render: shell
-    validations:
-      required: true
 
   - type: textarea
     id: output
@@ -46,19 +42,3 @@ body:
       label: Output or logs
       description: Relevant log, error or `--json` output, with secrets redacted.
       render: shell
-
-  - type: input
-    id: version
-    attributes:
-      label: wgfetch version
-      description: Output of `wgfetch --version`, or the commit SHA you built from.
-    validations:
-      required: true
-
-  - type: input
-    id: os
-    attributes:
-      label: Operating system
-      placeholder: e.g. Windows 11 24H2 (x64)
-    validations:
-      required: true
