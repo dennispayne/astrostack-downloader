@@ -67,6 +67,43 @@ public sealed record VerificationOptions
     public int MaximumRedirects { get; init; } = 5;
 }
 
+/// <summary>A response reached by following only HTTPS redirects within an allowlist.</summary>
+public sealed class RedirectFollowResult : IAsyncDisposable
+{
+    internal RedirectFollowResult(
+        Uri candidateUrl,
+        Uri? finalUrl,
+        IReadOnlyList<Uri> redirectChain,
+        HttpResponseSpec? response,
+        VerificationStatus? failureStatus,
+        string? failureReason)
+    {
+        CandidateUrl = candidateUrl;
+        FinalUrl = finalUrl;
+        RedirectChain = redirectChain;
+        Response = response;
+        FailureStatus = failureStatus;
+        FailureReason = failureReason;
+    }
+
+    public Uri CandidateUrl { get; }
+
+    public Uri? FinalUrl { get; }
+
+    public IReadOnlyList<Uri> RedirectChain { get; }
+
+    /// <summary>The final non-redirect response; callers must dispose this result when finished with it.</summary>
+    public HttpResponseSpec? Response { get; }
+
+    public VerificationStatus? FailureStatus { get; }
+
+    public string? FailureReason { get; }
+
+    public bool Succeeded => Response is not null;
+
+    public ValueTask DisposeAsync() => Response?.DisposeAsync() ?? ValueTask.CompletedTask;
+}
+
 /// <summary>
 /// The mechanical accept/reject decision for a candidate installer URL. No model output can move a
 /// URL past this gate; every check is deterministic and every rejection is logged with its reason
@@ -122,22 +159,166 @@ public sealed class VerificationGate
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(allowlist);
 
+        await using var redirected = await FollowAllowedRedirectsAsync(
+            new HttpRequestSpec
+            {
+                Url = candidate,
+                Verb = HttpVerb.Get,
+                RangeFrom = 0,
+                RangeTo = MagicBytes.InspectionChunkSize - 1,
+            },
+            allowlist,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!redirected.Succeeded)
+        {
+            return Reject(
+                candidate,
+                redirected.FailureStatus ?? VerificationStatus.RequestFailed,
+                redirected.FailureReason ?? "redirect processing failed",
+                redirected.RedirectChain,
+                redirected.FinalUrl);
+        }
+
+        var response = redirected.Response!;
+        var current = redirected.FinalUrl!;
+        var redirects = redirected.RedirectChain;
+
+        if (response.StatusCode is 401 or 403 or 407)
+        {
+            return Reject(
+                candidate,
+                VerificationStatus.RequiresAuthentication,
+                $"HTTP {response.StatusCode}: requires authentication (P1, unsupported)",
+                redirects,
+                current);
+        }
+
+        if (!response.IsSuccess)
+        {
+            return Reject(candidate, VerificationStatus.RequestFailed, $"HTTP {response.StatusCode}", redirects, current);
+        }
+
+        var contentType = response.ContentType;
+        var length = response.ResourceLength;
+
+        if (IsMarkupContentType(contentType))
+        {
+            return Reject(
+                candidate,
+                VerificationStatus.NotBinaryContentType,
+                $"content-type '{contentType}' is not a binary payload",
+                redirects,
+                current,
+                contentType,
+                length);
+        }
+
+        if (contentType is not null && !IsBinaryContentType(contentType))
+        {
+            _logger.LogDebug(
+                "Content-type '{ContentType}' for {Url} is unrecognised; deferring to magic bytes.",
+                contentType,
+                current);
+        }
+
+        var chunk = await ReadChunkAsync(response.Body, MagicBytes.InspectionChunkSize, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (MagicBytes.LooksLikeMarkup(chunk))
+        {
+            return Reject(
+                candidate,
+                VerificationStatus.MarkupPayload,
+                "payload begins with markup — login, error or interstitial page",
+                redirects,
+                current,
+                contentType,
+                length);
+        }
+
+        var format = MagicBytes.Classify(chunk);
+        if (!MagicBytes.IsAcceptedInstaller(format))
+        {
+            return Reject(
+                candidate,
+                VerificationStatus.UnknownInstallerFormat,
+                "leading bytes match no known installer format",
+                redirects,
+                current,
+                contentType,
+                length);
+        }
+
+        if (length is null)
+        {
+            _logger.LogDebug("No content length advertised for {Url}; length plausibility deferred to download.", current);
+        }
+        else if (length < _options.MinimumInstallerBytes || length > _options.MaximumInstallerBytes)
+        {
+            return Reject(
+                candidate,
+                VerificationStatus.ImplausibleLength,
+                $"content length {length} bytes is implausible for an installer",
+                redirects,
+                current,
+                contentType,
+                length,
+                format);
+        }
+
+        _logger.LogInformation(
+            "Verification accepted {Url} ({Format}, {Length} bytes, content-type '{ContentType}').",
+            current,
+            format,
+            length,
+            contentType);
+
+        return new VerificationResult
+        {
+            Status = VerificationStatus.Accepted,
+            CandidateUrl = candidate,
+            FinalUrl = current,
+            ContentType = contentType,
+            ContentLength = length,
+            Format = format,
+            Validator = response.Validator,
+            AcceptsRanges = response.AcceptsRanges || response.StatusCode == 206,
+            RedirectChain = redirects,
+            Reason = $"accepted: {format}, {length?.ToString() ?? "unknown"} bytes",
+        };
+    }
+
+    /// <summary>
+    /// Sends a request while following only HTTPS redirects within <paramref name="allowlist"/>.
+    /// The final response is returned unread so callers can apply payload-specific verification.
+    /// </summary>
+    public async Task<RedirectFollowResult> FollowAllowedRedirectsAsync(
+        HttpRequestSpec request,
+        DomainAllowlist allowlist,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(allowlist);
+
+        var candidate = request.Url;
         if (!candidate.IsAbsoluteUri || !string.Equals(candidate.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            return Reject(candidate, VerificationStatus.NotHttps, $"scheme '{candidate.Scheme}' is not https");
+            return Failed(candidate, null, [], VerificationStatus.NotHttps, $"scheme '{candidate.Scheme}' is not https");
         }
 
         if (!allowlist.Allows(candidate))
         {
-            return Reject(
+            return Failed(
                 candidate,
+                null,
+                [],
                 VerificationStatus.HostNotAllowlisted,
                 $"host '{candidate.Host}' is not on the allowlist [{string.Join(", ", allowlist.Domains)}]");
         }
 
         var redirects = new List<Uri>();
         var current = candidate;
-
         for (var hop = 0; hop <= _options.MaximumRedirects; hop++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -145,17 +326,7 @@ public sealed class VerificationGate
             HttpResponseSpec response;
             try
             {
-                // A ranged GET doubles as the HEAD probe and the magic-byte sample, and works with the
-                // many vendor hosts that reject or mishandle HEAD.
-                response = await _http.SendAsync(
-                    new HttpRequestSpec
-                    {
-                        Url = current,
-                        Verb = HttpVerb.Get,
-                        RangeFrom = 0,
-                        RangeTo = MagicBytes.InspectionChunkSize - 1,
-                    },
-                    cancellationToken).ConfigureAwait(false);
+                response = await _http.SendAsync(request with { Url = current }, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -163,152 +334,43 @@ public sealed class VerificationGate
             }
             catch (Exception ex)
             {
-                return Reject(candidate, VerificationStatus.RequestFailed, $"request to '{current}' failed: {ex.Message}", redirects, current);
+                return Failed(candidate, current, redirects, VerificationStatus.RequestFailed, $"request to '{current}' failed: {ex.Message}");
+            }
+
+            if (!response.IsRedirect)
+            {
+                return new RedirectFollowResult(candidate, current, redirects, response, null, null);
             }
 
             await using (response.ConfigureAwait(false))
             {
-                if (response.IsRedirect)
+                var location = response.Header("Location");
+                if (string.IsNullOrWhiteSpace(location) || !Uri.TryCreate(current, location, out var next))
                 {
-                    var location = response.Header("Location");
-                    if (string.IsNullOrWhiteSpace(location) ||
-                        !Uri.TryCreate(current, location, out var next))
-                    {
-                        return Reject(candidate, VerificationStatus.RequestFailed, $"redirect from '{current}' had no usable Location header", redirects, current);
-                    }
-
-                    if (!string.Equals(next.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return Reject(candidate, VerificationStatus.NotHttps, $"redirect to non-https URL '{Redact(next)}'", redirects, current);
-                    }
-
-                    if (!allowlist.Allows(next))
-                    {
-                        return Reject(
-                            candidate,
-                            VerificationStatus.RedirectOffAllowlist,
-                            $"redirect to off-allowlist host '{next.Host}'",
-                            redirects,
-                            current);
-                    }
-
-                    redirects.Add(next);
-                    current = next;
-                    continue;
+                    return Failed(candidate, current, redirects, VerificationStatus.RequestFailed, $"redirect from '{current}' had no usable Location header");
                 }
 
-                if (response.StatusCode is 401 or 403 or 407)
+                if (!string.Equals(next.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
                 {
-                    return Reject(
-                        candidate,
-                        VerificationStatus.RequiresAuthentication,
-                        $"HTTP {response.StatusCode}: requires authentication (P1, unsupported)",
-                        redirects,
-                        current);
+                    return Failed(candidate, current, redirects, VerificationStatus.NotHttps, $"redirect to non-https URL '{Redact(next)}'");
                 }
 
-                if (!response.IsSuccess)
+                if (!allowlist.Allows(next))
                 {
-                    return Reject(candidate, VerificationStatus.RequestFailed, $"HTTP {response.StatusCode}", redirects, current);
+                    return Failed(candidate, current, redirects, VerificationStatus.RedirectOffAllowlist, $"redirect to off-allowlist host '{next.Host}'");
                 }
 
-                var contentType = response.ContentType;
-                var length = response.ResourceLength;
-
-                if (IsMarkupContentType(contentType))
-                {
-                    return Reject(
-                        candidate,
-                        VerificationStatus.NotBinaryContentType,
-                        $"content-type '{contentType}' is not a binary payload",
-                        redirects,
-                        current,
-                        contentType,
-                        length);
-                }
-
-                if (contentType is not null && !IsBinaryContentType(contentType))
-                {
-                    _logger.LogDebug(
-                        "Content-type '{ContentType}' for {Url} is unrecognised; deferring to magic bytes.",
-                        contentType,
-                        current);
-                }
-
-                var chunk = await ReadChunkAsync(response.Body, MagicBytes.InspectionChunkSize, cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (MagicBytes.LooksLikeMarkup(chunk))
-                {
-                    return Reject(
-                        candidate,
-                        VerificationStatus.MarkupPayload,
-                        "payload begins with markup — login, error or interstitial page",
-                        redirects,
-                        current,
-                        contentType,
-                        length);
-                }
-
-                var format = MagicBytes.Classify(chunk);
-                if (!MagicBytes.IsAcceptedInstaller(format))
-                {
-                    return Reject(
-                        candidate,
-                        VerificationStatus.UnknownInstallerFormat,
-                        "leading bytes match no known installer format",
-                        redirects,
-                        current,
-                        contentType,
-                        length);
-                }
-
-                if (length is null)
-                {
-                    _logger.LogDebug("No content length advertised for {Url}; length plausibility deferred to download.", current);
-                }
-                else if (length < _options.MinimumInstallerBytes || length > _options.MaximumInstallerBytes)
-                {
-                    return Reject(
-                        candidate,
-                        VerificationStatus.ImplausibleLength,
-                        $"content length {length} bytes is implausible for an installer",
-                        redirects,
-                        current,
-                        contentType,
-                        length,
-                        format);
-                }
-
-                _logger.LogInformation(
-                    "Verification accepted {Url} ({Format}, {Length} bytes, content-type '{ContentType}').",
-                    current,
-                    format,
-                    length,
-                    contentType);
-
-                return new VerificationResult
-                {
-                    Status = VerificationStatus.Accepted,
-                    CandidateUrl = candidate,
-                    FinalUrl = current,
-                    ContentType = contentType,
-                    ContentLength = length,
-                    Format = format,
-                    Validator = response.Validator,
-                    AcceptsRanges = response.AcceptsRanges || response.StatusCode == 206,
-                    RedirectChain = redirects,
-                    Reason = $"accepted: {format}, {length?.ToString() ?? "unknown"} bytes",
-                };
+                redirects.Add(next);
+                current = next;
             }
         }
 
-        return Reject(
+        return Failed(
             candidate,
-            VerificationStatus.TooManyRedirects,
-            $"exceeded {_options.MaximumRedirects} redirects",
+            current,
             redirects,
-            current);
+            VerificationStatus.TooManyRedirects,
+            $"exceeded {_options.MaximumRedirects} redirects");
     }
 
     internal static bool IsBinaryContentType(string contentType)
@@ -394,4 +456,12 @@ public sealed class VerificationGate
     }
 
     private static string Redact(Uri uri) => Logging.SecretRedactor.RedactUrl(uri);
+
+    private static RedirectFollowResult Failed(
+        Uri candidate,
+        Uri? finalUrl,
+        IReadOnlyList<Uri> redirects,
+        VerificationStatus status,
+        string reason) =>
+        new(candidate, finalUrl, redirects, null, status, reason);
 }

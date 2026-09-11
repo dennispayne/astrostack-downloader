@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using WgFetch.Core.Abstractions;
 using WgFetch.Core.Downloads;
+using WgFetch.Core.Verification;
 
 namespace WgFetch.Core.Prereqs;
 
@@ -64,13 +65,13 @@ public sealed record PrereqInstalledFile(
 /// </summary>
 public sealed class PrereqInstaller
 {
-    private readonly IHttpGateway _http;
+    private readonly VerificationGate _verificationGate;
     private readonly ILogger _logger;
 
     public PrereqInstaller(IHttpGateway http, ILogger? logger = null)
     {
-        _http = http;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        _verificationGate = new VerificationGate(http, logger: _logger);
     }
 
     public static string ModelDirectory(string modelsRoot, PinnedModel model) =>
@@ -223,19 +224,25 @@ public sealed class PrereqInstaller
         var temp = path + ".tmp";
         try
         {
-            var response = await _http
-                .SendAsync(new HttpRequestSpec { Url = new Uri(asset.Url), Verb = HttpVerb.Get }, cancellationToken)
-                .ConfigureAwait(false);
-
-            await using (response.ConfigureAwait(false))
+            await using var redirected = await _verificationGate.FollowAllowedRedirectsAsync(
+                new HttpRequestSpec { Url = new Uri(asset.Url), Verb = HttpVerb.Get },
+                new DomainAllowlist(PinnedModels.DownloadHosts),
+                cancellationToken).ConfigureAwait(false);
+            if (!redirected.Succeeded)
             {
-                if (!response.IsSuccess)
-                {
-                    _logger.LogError("Model download failed with HTTP {Status} for {Asset}.", response.StatusCode, asset.RelativePath);
-                    return null;
-                }
+                _logger.LogError("Model download verification failed for {Asset}: {Reason}.", asset.RelativePath, redirected.FailureReason);
+                return null;
+            }
 
-                await using var file = File.Create(temp);
+            var response = redirected.Response!;
+            if (!response.IsSuccess)
+            {
+                _logger.LogError("Model download failed with HTTP {Status} for {Asset}.", response.StatusCode, asset.RelativePath);
+                return null;
+            }
+
+            await using (var file = File.Create(temp))
+            {
                 await response.Body.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
             }
 
