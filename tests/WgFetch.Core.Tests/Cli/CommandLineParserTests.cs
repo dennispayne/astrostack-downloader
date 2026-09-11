@@ -64,6 +64,42 @@ public sealed class CommandLineParserTests
         Assert.True(parsed.HasErrors);
     }
 
+    [Theory]
+    [InlineData("--arch", "x84", "x64, x86, arm64")]
+    [InlineData("--scope", "machien", "machine, user")]
+    [InlineData("--log-level", "verbse", "trace, debug, info, warn, error, none")]
+    [InlineData("--ai-mode", "automatic", "local, remote, auto")]
+    public void Rejects_invalid_closed_enum_values(string option, string value, string allowed)
+    {
+        var parsed = CommandLineParser.Parse(["resolve", "demo", option, value, "--dry-run"]);
+
+        var error = Assert.Single(parsed.Errors);
+        Assert.Equal($"invalid value '{value}' for {option} (expected one of: {allowed})", error);
+    }
+
+    [Theory]
+    [InlineData("--arch", "x64")]
+    [InlineData("--arch", "x86")]
+    [InlineData("--arch", "arm64")]
+    [InlineData("--scope", "machine")]
+    [InlineData("--scope", "user")]
+    [InlineData("--log-level", "trace")]
+    [InlineData("--log-level", "debug")]
+    [InlineData("--log-level", "info")]
+    [InlineData("--log-level", "warn")]
+    [InlineData("--log-level", "error")]
+    [InlineData("--log-level", "none")]
+    [InlineData("--ai-mode", "local")]
+    [InlineData("--ai-mode", "remote")]
+    [InlineData("--ai-mode", "auto")]
+    public void Accepts_documented_closed_enum_values(string option, string value)
+    {
+        var parsed = CommandLineParser.Parse(["resolve", "demo", option, value, "--dry-run"]);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal(value, parsed.Value(option));
+    }
+
     [Fact]
     public void Requires_a_subcommand_where_the_spec_defines_one()
     {

@@ -57,6 +57,15 @@ public sealed record ParsedCommandLine
 /// </summary>
 public static class CommandLineParser
 {
+    private static readonly IReadOnlyDictionary<string, string[]> AllowedOptionValues =
+        new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["--arch"] = ["x64", "x86", "arm64"],
+            ["--scope"] = ["machine", "user"],
+            ["--log-level"] = ["trace", "debug", "info", "warn", "error", "none"],
+            ["--ai-mode"] = ["local", "remote", "auto"],
+        };
+
     private static readonly OptionSpec[] GlobalOptions =
     [
         new("--log-level", OptionArity.Value, "trace|debug|info|warn|error|none (default info)"),
@@ -201,6 +210,13 @@ public static class CommandLineParser
                     }
 
                     value = args[++i];
+                }
+
+                if (AllowedOptionValues.TryGetValue(name, out var allowed) &&
+                    !allowed.Contains(value, StringComparer.OrdinalIgnoreCase))
+                {
+                    errors.Add($"invalid value '{value}' for {name} (expected one of: {string.Join(", ", allowed)})");
+                    continue;
                 }
 
                 Append(options, name, value);
