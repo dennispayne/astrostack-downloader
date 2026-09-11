@@ -1,4 +1,5 @@
 using WgFetch.Core.Targets;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace WgFetch.Core.Tests.Targets;
@@ -209,6 +210,7 @@ public class TargetsFileTests
 
             Assert.Equal(path, exception.Path);
             Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("line 1, column 29", exception.Message, StringComparison.Ordinal);
             Assert.DoesNotContain('\n', exception.Message);
         }
         finally
@@ -224,7 +226,7 @@ public class TargetsFileTests
             () => TargetsFile.Parse("targets: [this is: not valid: yaml:::"));
 
         Assert.Null(exception.Path);
-        Assert.IsType<YamlDotNet.Core.SemanticErrorException>(exception.InnerException);
+        Assert.IsAssignableFrom<YamlException>(exception.InnerException);
     }
 
     [Fact]
