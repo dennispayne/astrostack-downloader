@@ -1,0 +1,15 @@
+{
+  "id": "astap-db-h18",
+  "kind": "Data",
+  "module": "plate-solver-data",
+  "displayName": "ASTAP star database H18",
+  "versionSource": null,
+  "expectedVersion": null,
+  "downloadUrl": null,
+  "downloadFileName": null,
+  "sha256": null,
+  "archiveContainsInstaller": false,
+  "silentInstallArgs": null,
+  "installNotes": "Large download; only required for deep faint-star solving.",
+  "verified": false
+}

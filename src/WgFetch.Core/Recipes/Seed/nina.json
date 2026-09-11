@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "packageId": "AstroStack.NINA",
+  "componentId": "nina",
+  "displayName": "N.I.N.A. - Nighttime Imaging 'N' Astronomy",
+  "publisher": "Stefan Berg / isbeorn",
+  "aliases": ["nina", "n.i.n.a.", "nighttime imaging"],
+  "tags": ["imaging", "capture", "sequencer", "astrophotography"],
+  "sourceKind": "GitHubRelease",
+  "allowlist": ["github.com", "nighttime-imaging.eu"],
+  "repository": "isbeorn/nina",
+  "assetPattern": "*.zip",
+  "installerType": "zip",
+  "nestedInstallerType": "Inno",
+  "origin": "Seed",
+  "notes": "Vendor ships a ZIP bundle containing an Inno Setup installer; wgfetch fetches the ZIP byte-for-byte and never unpacks it."
+}

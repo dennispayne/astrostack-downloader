@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker-net/master/src/Stryker.Core/Stryker.Core/Schemas/stryker-config.json",
+  "stryker-config": {
+    "solution": "wgfetch.slnx",
+    "project": "WgFetch.Core.csproj",
+    "test-projects": ["tests/WgFetch.Core.Tests/WgFetch.Core.Tests.csproj"],
+    "reporters": ["progress", "html", "cleartext"],
+    "test-case-filter": "Category!=Live&Category!=Weights&Category!=Aot",
+    "concurrency": 2,
+    "thresholds": {
+      "high": 90,
+      "low": 80,
+      "break": 75
+    },
+    "mutate": [
+      "**/Verification/*.cs",
+      "**/Downloads/*.cs",
+      "**/Versioning/*.cs"
+    ]
+  }
+}

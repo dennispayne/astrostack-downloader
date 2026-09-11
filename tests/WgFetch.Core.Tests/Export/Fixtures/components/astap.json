@@ -1,0 +1,15 @@
+{
+  "id": "astap",
+  "kind": "Application",
+  "module": "plate-solver",
+  "displayName": "ASTAP",
+  "versionSource": "DisplayVersion",
+  "expectedVersion": "2024.09.15",
+  "downloadUrl": "https://www.hnsky.org/astap_x64.zip",
+  "downloadFileName": "astap_x64.zip",
+  "sha256": "b19e1f1a1111111111111111111111111111111111111111111111111111111",
+  "archiveContainsInstaller": false,
+  "silentInstallArgs": "/S",
+  "installNotes": null,
+  "verified": true
+}

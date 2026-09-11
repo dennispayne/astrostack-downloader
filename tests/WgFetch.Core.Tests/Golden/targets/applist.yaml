@@ -1,0 +1,10 @@
+apps:
+- name: nina
+  id: AstroStack.NINA
+  componentId: nina
+  arch: x64
+  scope: machine
+  allowlist: [nighttime-imaging.eu, github.com]
+- name: sharpcap
+  componentId: sharpcap
+...

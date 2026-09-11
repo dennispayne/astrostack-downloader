@@ -1,0 +1,19 @@
+## Build output
+bin/
+obj/
+publish/
+artifacts/
+*.user
+
+## Test and coverage output
+TestResults/
+StrykerOutput/
+coverage*.xml
+coverage*.json
+
+## Local caches and models (never committed — vendor installers stay under their own licenses)
+models/
+source/
+cache/
+*.tmp
+*.partial

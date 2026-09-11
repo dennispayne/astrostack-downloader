@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: AstroStack.NINA
+PackageVersion: 3.2.0.9001
+Installers:
+- Architecture: x64
+  InstallerType: zip
+  InstallerUrl: file:///output/installers/AstroStack.NINA/3.2.0.9001/NINASetupBundle_3.2.0.9001.zip
+  InstallerSha256: ccfefa7a79cfb933fbad994853810daf6d78de8667aac052686d0a00fd9f1590
+  NestedInstallerType: exe
+  NestedInstallerFiles:
+  - RelativeFilePath: NINA.exe
+ManifestType: installer
+ManifestVersion: 1.6.0

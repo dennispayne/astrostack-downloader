@@ -1,0 +1,31 @@
+{
+  "Data": {
+    "PackageIdentifier": "AstroStack.NINA",
+    "Versions": [
+      {
+        "PackageVersion": "3.2.0.9001",
+        "DefaultLocale": {
+          "PackageLocale": "en-US",
+          "Publisher": "Stefan Berg",
+          "PackageName": "N.I.N.A. - Nighttime Imaging \u0027N\u0027 Astronomy",
+          "License": "Freeware",
+          "ShortDescription": "Astrophotography imaging suite"
+        },
+        "Installers": [
+          {
+            "Architecture": "x64",
+            "InstallerType": "zip",
+            "InstallerUrl": "file:///output/installers/AstroStack.NINA/3.2.0.9001/NINASetupBundle_3.2.0.9001.zip",
+            "InstallerSha256": "ccfefa7a79cfb933fbad994853810daf6d78de8667aac052686d0a00fd9f1590",
+            "NestedInstallerType": "exe",
+            "NestedInstallerFiles": [
+              {
+                "RelativeFilePath": "NINA.exe"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+version: 1
+targets:
+- name: nina
+  id: AstroStack.NINA
+  componentId: nina
+  state: acquired
+  acquiredVersion: 3.2.0.9001
+  availableVersion: 3.2.0.9001
+  arch: x64
+  scope: machine
+  pin: null
+  allowlist: [nighttime-imaging.eu, github.com]
+  recipe: null
+  lastAttempt: 2026-09-10T14:22:11Z
+  lastError: null
+- name: sharpcap
+  id: null
+  componentId: sharpcap
+  state: listed
+  acquiredVersion: null
+  availableVersion: null
+  arch: null
+  scope: null
+  pin: null
+  allowlist: []
+  recipe: null
+  lastAttempt: null
+  lastError: null
+...
