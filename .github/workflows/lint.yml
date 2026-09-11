@@ -15,7 +15,7 @@ jobs:
     name: dotnet format / analyzers
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # We standardize on the .slnx (XML solution) format over the legacy .sln format. This is a
       # hard gate, independent of whether a solution exists yet, so a stray `dotnet new sln` /
@@ -48,7 +48,7 @@ jobs:
 
       - name: Set up .NET
         if: steps.sln-check.outputs.present == 'true'
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
