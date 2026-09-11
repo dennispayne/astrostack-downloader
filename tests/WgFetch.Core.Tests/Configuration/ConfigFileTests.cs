@@ -125,6 +125,15 @@ public sealed class ConfigRedactionTests
         {
             Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), name, value, out _, out _));
         }
+
+        [Fact]
+        public void Normalizes_enum_like_values()
+        {
+            Assert.True(ConfigSettings.TrySet(new WgFetchConfig(), "scope", "Machine", out var scope, out _));
+            Assert.True(ConfigSettings.TrySet(scope, "architecture", "X64", out var architecture, out _));
+            Assert.Equal("machine", architecture.Scope);
+            Assert.Equal("x64", architecture.Architecture);
+        }
     }
 
     [Fact]

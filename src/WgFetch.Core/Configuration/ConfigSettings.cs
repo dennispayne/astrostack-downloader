@@ -23,6 +23,11 @@ public static class ConfigSettings
     public static bool TrySet(WgFetchConfig config, string name, string value, out WgFetchConfig updated, out string? error)
     {
         var normalized = Normalize(name);
+        if (normalized is "architecture" or "scope" or "aimode")
+        {
+            value = value.ToLowerInvariant();
+        }
+
         if (normalized == "architecture" && value is not ("x64" or "x86" or "arm64"))
         {
             updated = config; error = "architecture must be x64, x86, or arm64."; return false;
@@ -55,9 +60,9 @@ public static class ConfigSettings
             "githubtoken" => SetString(config, value, static (c, v) => c with { GithubToken = v }, out updated, out error),
             "loglevel" => SetString(config, value, static (c, v) => c with { LogLevel = v }, out updated, out error),
             "threshold" => SetDouble(config, value, out updated, out error),
-            "keepversions" => SetInt(config, value, 1, int.MaxValue, static (c, v) => c with { KeepVersions = v }, out updated, out error),
-            "paralleldownloads" => SetInt(config, value, 1, 16, static (c, v) => c with { ParallelDownloads = v }, out updated, out error),
-            "maxperhost" => SetInt(config, value, 1, 8, static (c, v) => c with { MaxPerHost = v }, out updated, out error),
+            "keepversions" => SetInt(config, value, "keepVersions", 1, int.MaxValue, static (c, v) => c with { KeepVersions = v }, out updated, out error),
+            "paralleldownloads" => SetInt(config, value, "parallelDownloads", 1, 16, static (c, v) => c with { ParallelDownloads = v }, out updated, out error),
+            "maxperhost" => SetInt(config, value, "maxPerHost", 1, 8, static (c, v) => c with { MaxPerHost = v }, out updated, out error),
             "plain" => SetBool(config, value, out updated, out error),
             _ => UnknownResult(config, name, out updated, out error),
         };
@@ -96,6 +101,17 @@ public static class ConfigSettings
     public static string? GetRedactedValue(WgFetchConfig config, string name, out string? error)
     {
         var redacted = config.Redacted();
+        return GetValue(redacted, name, out error);
+    }
+
+    public static IReadOnlyList<(string Name, string? Value)> GetRedactedValues(WgFetchConfig config)
+    {
+        var redacted = config.Redacted();
+        return Names.Select(name => (name, GetValue(redacted, name, out _))).ToArray();
+    }
+
+    private static string? GetValue(WgFetchConfig redacted, string name, out string? error)
+    {
         error = null;
         return Normalize(name) switch
         {
@@ -112,16 +128,8 @@ public static class ConfigSettings
         };
     }
 
-    public static IReadOnlyList<(string Name, string? Value)> GetRedactedValues(WgFetchConfig config) =>
-        Names.Select(name => (name, GetRedactedValue(config, name, out _))).ToArray();
-
     private static bool SetString(WgFetchConfig config, string value, Func<WgFetchConfig, string, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
     {
-        if (value is null)
-        {
-            updated = config; error = "value is required."; return false;
-        }
-
         updated = setter(config, value);
         error = null;
         return true;
@@ -138,7 +146,7 @@ public static class ConfigSettings
         updated = config; error = "threshold must be a number from 0 through 1."; return false;
     }
 
-    private static bool SetInt(WgFetchConfig config, string value, int minimum, int maximum, Func<WgFetchConfig, int, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
+    private static bool SetInt(WgFetchConfig config, string value, string name, int minimum, int maximum, Func<WgFetchConfig, int, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
     {
         if (int.TryParse(value, CultureInfo.InvariantCulture, out var result) && result >= minimum && result <= maximum)
         {
@@ -147,7 +155,7 @@ public static class ConfigSettings
         }
 
         updated = config;
-        error = $"value must be an integer from {minimum} through {maximum}.";
+        error = $"{name} must be an integer from {minimum} through {maximum}.";
         return false;
     }
 
