@@ -72,6 +72,8 @@ public sealed class VerificationGateTests
 
         Assert.Equal(VerificationStatus.TooManyRedirects, result.FailureStatus);
         Assert.Equal(2, http.Requests.Count);
+        Assert.Equal(new Uri(url), result.FinalUrl);
+        Assert.Single(result.RedirectChain);
     }
 
     [Fact]

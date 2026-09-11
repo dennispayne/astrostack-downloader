@@ -95,6 +95,12 @@ public sealed class RedirectFollowResult : IAsyncDisposable
     /// <summary>The final non-redirect response; callers must dispose this result when finished with it.</summary>
     public HttpResponseSpec? Response { get; }
 
+    /// <summary>
+    /// The redirect-check failure, when any. Only <see cref="VerificationStatus.NotHttps"/>,
+    /// <see cref="VerificationStatus.HostNotAllowlisted"/>, <see cref="VerificationStatus.RedirectOffAllowlist"/>,
+    /// <see cref="VerificationStatus.TooManyRedirects"/>, and <see cref="VerificationStatus.RequestFailed"/>
+    /// are returned by this redirect-only operation.
+    /// </summary>
     public VerificationStatus? FailureStatus { get; }
 
     public string? FailureReason { get; }
@@ -320,7 +326,7 @@ public sealed class VerificationGate
 
         var redirects = new List<Uri>();
         var current = candidate;
-        for (var hop = 0; hop <= _options.MaximumRedirects; hop++)
+        while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -361,17 +367,20 @@ public sealed class VerificationGate
                     return Failed(candidate, current, redirects, VerificationStatus.RedirectOffAllowlist, $"redirect to off-allowlist host '{next.Host}'");
                 }
 
+                if (redirects.Count >= _options.MaximumRedirects)
+                {
+                    return Failed(
+                        candidate,
+                        current,
+                        redirects,
+                        VerificationStatus.TooManyRedirects,
+                        $"exceeded {_options.MaximumRedirects} redirects");
+                }
+
                 redirects.Add(next);
                 current = next;
             }
         }
-
-        return Failed(
-            candidate,
-            current,
-            redirects,
-            VerificationStatus.TooManyRedirects,
-            $"exceeded {_options.MaximumRedirects} redirects");
     }
 
     internal static bool IsBinaryContentType(string contentType)

@@ -65,13 +65,20 @@ public sealed record PrereqInstalledFile(
 /// </summary>
 public sealed class PrereqInstaller
 {
+    private static readonly DomainAllowlist DownloadAllowlist = new(PinnedModels.DownloadHosts);
+
     private readonly VerificationGate _verificationGate;
     private readonly ILogger _logger;
+    private readonly IReadOnlyList<PinnedModel> _models;
 
-    public PrereqInstaller(IHttpGateway http, ILogger? logger = null)
+    public PrereqInstaller(
+        IHttpGateway http,
+        ILogger? logger = null,
+        IReadOnlyList<PinnedModel>? models = null)
     {
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _verificationGate = new VerificationGate(http, logger: _logger);
+        _models = models ?? PinnedModels.All;
     }
 
     public static string ModelDirectory(string modelsRoot, PinnedModel model) =>
@@ -130,7 +137,7 @@ public sealed class PrereqInstaller
         var success = true;
         var installed = new List<PrereqInstalledModel>();
 
-        foreach (var model in PinnedModels.All)
+        foreach (var model in _models)
         {
             if (model.IsLanguageModel && !includeLanguageModel)
             {
@@ -226,7 +233,7 @@ public sealed class PrereqInstaller
         {
             await using var redirected = await _verificationGate.FollowAllowedRedirectsAsync(
                 new HttpRequestSpec { Url = new Uri(asset.Url), Verb = HttpVerb.Get },
-                new DomainAllowlist(PinnedModels.DownloadHosts),
+                DownloadAllowlist,
                 cancellationToken).ConfigureAwait(false);
             if (!redirected.Succeeded)
             {
