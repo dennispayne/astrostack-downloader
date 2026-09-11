@@ -9,6 +9,7 @@ using WgFetch.Core.Model;
 using WgFetch.Core.Output;
 using WgFetch.Core.Progress;
 using WgFetch.Core.Recipes;
+using WgFetch.Core.Targets;
 
 namespace WgFetch.Core.Cli;
 
@@ -100,6 +101,26 @@ public sealed partial class CommandRunner
         try
         {
             return await ExecuteAsync(parsed, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TargetsFileException ex)
+        {
+            if (_events is not null)
+            {
+                Emit(new JsonEvent
+                {
+                    Event = "error",
+                    Stage = "targets",
+                    Status = "failed",
+                    Message = ex.Message,
+                    ExitCode = (int)ExitCode.UsageError,
+                });
+            }
+            else
+            {
+                _stderr.WriteLine($"wgfetch: {ex.Message}");
+            }
+
+            return ExitCode.UsageError;
         }
         catch (OperationCanceledException)
         {

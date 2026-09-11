@@ -198,6 +198,26 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public async Task LoadAsync_MalformedYaml_ThrowsTargetsFileExceptionWithPath()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, $"malformed-{Guid.NewGuid():N}.yaml");
+        await File.WriteAllTextAsync(path, "targets: [this is: not valid: yaml:::");
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+            Assert.Equal(path, exception.Path);
+            Assert.Contains("failed to parse targets.yaml", exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain('\n', exception.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task SaveAsync_ThenLoadAsync_RoundTrips_AndLeavesNoTempFile()
     {
         string dir = Path.Combine(AppContext.BaseDirectory, $"targets-save-{Guid.NewGuid():N}");

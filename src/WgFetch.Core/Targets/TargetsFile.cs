@@ -37,7 +37,14 @@ public static class TargetsFile
         }
 
         string text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
-        return Parse(text);
+        try
+        {
+            return Parse(text);
+        }
+        catch (YamlException ex)
+        {
+            throw new TargetsFileException(path, ex);
+        }
     }
 
     /// <summary>Parses <c>targets.yaml</c> content already read into memory.</summary>
@@ -333,4 +340,18 @@ public static class TargetsFile
 
     /// <summary>Fields honoured by <see cref="ParseEntry"/>, in on-disk order, for reference/tests.</summary>
     public static IReadOnlyList<string> KnownEntryFieldOrder => KnownEntryKeysInOrder;
+}
+
+public sealed class TargetsFileException : Exception
+{
+    public TargetsFileException(string path, YamlException innerException)
+        : base(
+            $"failed to parse targets.yaml '{path}': " +
+            innerException.Message.ReplaceLineEndings(" "),
+            innerException)
+    {
+        Path = path;
+    }
+
+    public string Path { get; }
 }

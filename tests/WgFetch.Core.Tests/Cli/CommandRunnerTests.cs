@@ -269,6 +269,43 @@ public sealed class CommandRunnerTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MalformedTargetsYaml_IsCleanUsageError(bool json)
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(
+            SourceLayout.TargetsPath(temp.Path),
+            "targets: [this is: not valid: yaml:::");
+
+        var (runner, stdout, stderr) = CreateRunner();
+        var arguments = Repo(temp, "status");
+        if (json)
+        {
+            arguments = [.. arguments, "--json"];
+        }
+
+        var exit = await runner.RunAsync(arguments, CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("failed to parse targets.yaml", json ? stdout.ToString() : stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Unhandled exception", stderr.ToString(), StringComparison.Ordinal);
+
+        if (json)
+        {
+            Assert.Empty(stderr.ToString());
+            using var document = JsonDocument.Parse(Assert.Single(
+                stdout.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)));
+            Assert.Equal("error", document.RootElement.GetProperty("event").GetString());
+            Assert.Equal(1, document.RootElement.GetProperty("exitCode").GetInt32());
+        }
+        else
+        {
+            Assert.Single(stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+    }
+
     [Fact]
     public async Task VerifyAndList_ReadBackWhatFetchWrote()
     {
