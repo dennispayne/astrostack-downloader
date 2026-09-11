@@ -249,6 +249,17 @@ dotnet tool run dotnet-stryker -- --config-file stryker-config.json
 
 ---
 
+## Contributing and support
+
+| I want to | Read |
+| --- | --- |
+| Contribute a change | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Know how we behave here | [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) |
+| Ask a question or report a bug | [`SUPPORT.md`](SUPPORT.md) |
+| Report a vulnerability privately | [`SECURITY.md`](SECURITY.md) |
+
+---
+
 ## Exit codes
 
 | Code | Meaning |

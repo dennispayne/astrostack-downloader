@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or usage help
+    url: https://github.com/dennispayne/astrostack-downloader/blob/main/SUPPORT.md
+    about: How to get help using wgfetch.
+  - name: Report a security vulnerability
+    url: https://github.com/dennispayne/astrostack-downloader/security/advisories/new
+    about: Report privately. Never open a public issue for a vulnerability.
