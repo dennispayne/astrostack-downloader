@@ -100,6 +100,19 @@ public sealed class CommandLineParserTests
         Assert.Equal(value, parsed.Value(option));
     }
 
+    [Theory]
+    [InlineData("--arch", "X64", "x64")]
+    [InlineData("--scope", "USER", "user")]
+    [InlineData("--log-level", "WARN", "warn")]
+    [InlineData("--ai-mode", "AUTO", "auto")]
+    public void Normalizes_closed_enum_values(string option, string value, string expected)
+    {
+        var parsed = CommandLineParser.Parse(["resolve", "demo", option, value, "--dry-run"]);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal(expected, parsed.Value(option));
+    }
+
     [Fact]
     public void Requires_a_subcommand_where_the_spec_defines_one()
     {

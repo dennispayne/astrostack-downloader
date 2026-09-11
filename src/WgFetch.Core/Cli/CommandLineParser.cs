@@ -68,7 +68,7 @@ public static class CommandLineParser
 
     private static readonly OptionSpec[] GlobalOptions =
     [
-        new("--log-level", OptionArity.Value, "trace|debug|info|warn|error|none (default info)"),
+        new("--log-level", OptionArity.Value, $"{string.Join('|', AllowedOptionValues["--log-level"])} (default info)"),
         new("--log-file", OptionArity.Value, "write structured logs to a file"),
         new("--json", OptionArity.Flag, "machine-readable events on stdout; human logging on stderr"),
         new("--verbose", OptionArity.Flag, "shorthand for --log-level debug"),
@@ -93,12 +93,12 @@ public static class CommandLineParser
         new("--models-root", OptionArity.Value, "root directory holding pinned models"),
         new("--recipe", OptionArity.Value, "path to a recipe file"),
         new("--recipe-inline", OptionArity.Value, "inline recipe expression"),
-        new("--arch", OptionArity.Value, "x64|x86|arm64 (default: host)"),
-        new("--scope", OptionArity.Value, "machine|user (default machine)"),
+        new("--arch", OptionArity.Value, $"{string.Join('|', AllowedOptionValues["--arch"])} (default: host)"),
+        new("--scope", OptionArity.Value, $"{string.Join('|', AllowedOptionValues["--scope"])} (default machine)"),
         new("--threshold", OptionArity.Value, "tier-1 confidence threshold"),
         new("--keep-versions", OptionArity.Value, "retention count (default 2)"),
         new("--require-hash-match", OptionArity.Flag, "upstream hash mismatch is fatal"),
-        new("--ai-mode", OptionArity.Value, "local|remote|auto (default local)"),
+        new("--ai-mode", OptionArity.Value, $"{string.Join('|', AllowedOptionValues["--ai-mode"])} (default local)"),
         new("--ai-endpoint", OptionArity.Value, "OpenAI-compatible endpoint"),
         new("--ai-model", OptionArity.Value, "remote model name"),
         new("--ai-key", OptionArity.Value, "remote API key", "WGFETCH_AI_KEY"),
@@ -212,11 +212,17 @@ public static class CommandLineParser
                     value = args[++i];
                 }
 
-                if (AllowedOptionValues.TryGetValue(name, out var allowed) &&
-                    !allowed.Contains(value, StringComparer.OrdinalIgnoreCase))
+                if (AllowedOptionValues.TryGetValue(name, out var allowed))
                 {
-                    errors.Add($"invalid value '{value}' for {name} (expected one of: {string.Join(", ", allowed)})");
-                    continue;
+                    var canonicalValue = allowed.FirstOrDefault(
+                        candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
+                    if (canonicalValue is null)
+                    {
+                        errors.Add($"invalid value '{value}' for {name} (expected one of: {string.Join(", ", allowed)})");
+                        continue;
+                    }
+
+                    value = canonicalValue;
                 }
 
                 Append(options, name, value);
