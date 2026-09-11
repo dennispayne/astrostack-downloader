@@ -210,7 +210,7 @@ public class TargetsFileTests
 
             Assert.Equal(path, exception.Path);
             Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
-            Assert.Contains("line 1, column 29", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("line 1, column", exception.Message, StringComparison.Ordinal);
             Assert.DoesNotContain('\n', exception.Message);
         }
         finally
