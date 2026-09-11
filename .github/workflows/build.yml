@@ -347,3 +347,36 @@ jobs:
             echo "| Cache | ${{ steps.weights-cache.outputs.cache-hit == 'true' && '♻️ hit' || '⬇️ miss (full download)' }} | keyed on \`PinnedModels.cs\` |"
             echo "| SHA256 re-verification | ${status} | ${note} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  rollup:
+    name: Build summary (all tiers)
+    runs-on: ubuntu-latest
+    needs: [test, mutation, aot, live, reference-hardware, weights]
+    if: always()
+    steps:
+      - name: Build rollup summary
+        shell: bash
+        run: |
+          status_icon() {
+            case "$1" in
+              success)   echo "✅ success" ;;
+              failure)   echo "❌ failure" ;;
+              cancelled) echo "🚫 cancelled" ;;
+              skipped)   echo "⏭️ skipped" ;;
+              *)         echo "❓ ${1}" ;;
+            esac
+          }
+          {
+            echo "## Build rollup"
+            echo
+            echo "| Tier | Status |"
+            echo "|---|---|"
+            echo "| Build and hermetic tests | $(status_icon "${{ needs.test.result }}") |"
+            echo "| Mutation testing (Stryker.NET) | $(status_icon "${{ needs.mutation.result }}") |"
+            echo "| NativeAOT publish and smoke test | $(status_icon "${{ needs.aot.result }}") |"
+            echo "| Live-network tier (recipe rot) | $(status_icon "${{ needs.live.result }}") |"
+            echo "| Reference hardware approximation | $(status_icon "${{ needs.reference-hardware.result }}") |"
+            echo "| Pinned model weights | $(status_icon "${{ needs.weights.result }}") |"
+            echo
+            echo "Scheduled/manual-only tiers (live, reference hardware, weights) show ⏭️ skipped on regular pushes and PRs — that is expected, not a failure."
+          } >> "$GITHUB_STEP_SUMMARY"

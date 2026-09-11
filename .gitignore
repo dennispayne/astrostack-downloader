@@ -5,6 +5,10 @@ publish/
 artifacts/
 *.user
 
+## This repo standardizes on the .slnx (XML solution) format; lint.yml also hard-fails CI if a
+## .sln is tracked, but ignoring it too stops IDEs from generating one that a `git add .` scoops up.
+*.sln
+
 ## Test and coverage output
 TestResults/
 StrykerOutput/
