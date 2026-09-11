@@ -1,0 +1,90 @@
+name: "Lint"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: dotnet format / analyzers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # We standardize on the .slnx (XML solution) format over the legacy .sln format. This is a
+      # hard gate, independent of whether a solution exists yet, so a stray `dotnet new sln` /
+      # IDE-generated .sln never slips in undetected.
+      - name: Enforce .slnx over .sln
+        id: slnx-check
+        shell: bash
+        run: |
+          legacy=$(git ls-files -- '*.sln')
+          if [ -n "$legacy" ]; then
+            echo "Found legacy .sln file(s); this repo uses .slnx instead:"
+            echo "$legacy"
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "result=pass" >> "$GITHUB_OUTPUT"
+
+      # `main` has no .NET solution yet (it arrives via PR #1). Skip cleanly rather than failing
+      # CI on a repo with nothing to lint; this activates automatically once a .slnx lands.
+      - name: Check for .NET solution
+        id: sln-check
+        if: always()
+        shell: bash
+        run: |
+          if git ls-files -- '*.slnx' | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up .NET
+        if: steps.sln-check.outputs.present == 'true'
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        if: steps.sln-check.outputs.present == 'true'
+        shell: bash
+        run: |
+          sln=$(git ls-files -- '*.slnx' | head -n1)
+          dotnet restore "$sln"
+          echo "sln=$sln" >> "$GITHUB_ENV"
+
+      # Style/formatting only — analyzer warnings surface via the normal build, not here.
+      - name: dotnet format --verify-no-changes
+        if: steps.sln-check.outputs.present == 'true'
+        id: format
+        continue-on-error: true
+        shell: bash
+        run: dotnet format "$sln" --verify-no-changes --verbosity diagnostic
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Lint"
+            echo
+            echo "| Check | Status | Note |"
+            echo "|---|---|---|"
+            echo "| .slnx over .sln | ${{ steps.slnx-check.outputs.result == 'pass' && '✅ enforced' || '❌ legacy .sln found' }} | |"
+            if [ "${{ steps.sln-check.outputs.present }}" != "true" ]; then
+              echo "| dotnet format | ⏭️ skipped | no .slnx on this branch yet |"
+            else
+              echo "| dotnet format | ${{ steps.format.outcome == 'success' && '✅ clean' || '❌ formatting issues found' }} | |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if formatting issues were found
+        if: steps.sln-check.outputs.present == 'true' && steps.format.outcome != 'success'
+        run: exit 1

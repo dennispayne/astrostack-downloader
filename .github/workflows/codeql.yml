@@ -1,0 +1,126 @@
+name: "CodeQL"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Weekly scan to catch newly disclosed vulnerabilities in unchanged code.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          # wgfetch is the planned .NET 10 NativeAOT CLI (see PR #1); autobuild covers it once
+          # the solution lands on this branch.
+          - language: csharp
+            build-mode: autobuild
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # `main` has no .NET solution yet (it arrives via PR #1). Skip the C# scan rather than
+      # failing CI on a language with nothing to analyze; this turns on automatically once a
+      # .slnx/.csproj is committed here. (This repo standardizes on .slnx over .sln; see lint.yml.)
+      - name: Check for .NET project
+        if: matrix.language == 'csharp'
+        id: dotnet-check
+        shell: bash
+        run: |
+          if git ls-files -- '*.slnx' '*.csproj' | grep -q .; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Initialize CodeQL
+        if: matrix.language != 'csharp' || steps.dotnet-check.outputs.present == 'true'
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Autobuild
+        if: matrix.build-mode == 'autobuild' && steps.dotnet-check.outputs.present == 'true'
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        if: matrix.language != 'csharp' || steps.dotnet-check.outputs.present == 'true'
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          skipped="false"
+          if [ "${{ matrix.language == 'csharp' && steps.dotnet-check.outputs.present != 'true' }}" = "true" ]; then
+            skipped="true"
+          fi
+
+          {
+            echo "### CodeQL: ${{ matrix.language }}"
+            echo
+            if [ "$skipped" = "true" ]; then
+              echo "| Language | Status | Note |"
+              echo "|---|---|---|"
+              echo "| ${{ matrix.language }} | ⏭️ skipped | no .sln/.slnx/.csproj on this branch yet |"
+            else
+              echo "| Language | Status |"
+              echo "|---|---|"
+              echo "| ${{ matrix.language }} | ${{ job.status == 'success' && '✅ success' || '❌ failure' }} |"
+            fi
+          } | tee "codeql-summary-${{ matrix.language }}.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload summary fragment
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: codeql-summary-${{ matrix.language }}
+          path: codeql-summary-${{ matrix.language }}.md
+          if-no-files-found: warn
+          retention-days: 7
+
+  rollup:
+    name: CodeQL summary (all languages)
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: always()
+    steps:
+      - name: Download summary fragments
+        uses: actions/download-artifact@v8
+        with:
+          pattern: codeql-summary-*
+          path: fragments
+          merge-multiple: true
+
+      - name: Build rollup summary
+        shell: bash
+        run: |
+          {
+            echo "## CodeQL rollup"
+            echo
+            for f in fragments/*.md; do
+              [ -f "$f" ] && cat "$f" && echo
+            done
+            echo "**Overall:** ${{ needs.analyze.result == 'success' && '✅ all languages passed' || needs.analyze.result == 'skipped' && '⏭️ skipped' || '❌ one or more languages failed' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
