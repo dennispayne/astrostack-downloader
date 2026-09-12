@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
 using YamlDotNet.RepresentationModel;
@@ -37,10 +39,10 @@ public static class TargetsFile
     /// Loads <paramref name="path"/> the same way <see cref="LoadAsync"/> does, but also reports
     /// whether the file existed. Callers that must tell "nothing has ever been acquired" apart from
     /// "a targets.yaml exists but is empty" — such as the landing view's first-run hint — need this;
-    /// everyone else can use <see cref="LoadAsync"/>. Reading directly instead of pre-checking with
-    /// <see cref="File.Exists(string)"/> means a path that exists but cannot be inspected as a regular
-    /// file — for example a directory named <c>targets.yaml</c>, or one blocked by permissions — fails
-    /// closed via <see cref="TargetsFileException"/> instead of being silently treated as missing.
+    /// everyone else can use <see cref="LoadAsync"/>. A path that exists but is not a readable regular
+    /// file — a directory named <c>targets.yaml</c>, a FIFO, or one blocked by permissions — fails
+    /// closed via <see cref="TargetsFileException"/> instead of being silently treated as missing or
+    /// blocking the caller.
     /// </summary>
     internal static async Task<(TargetsDocument Document, bool Existed)> LoadDetailedAsync(
         string path,
@@ -48,48 +50,12 @@ public static class TargetsFile
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        if (OperatingSystem.IsLinux())
-        {
-            try
-            {
-                var attributes = File.GetAttributes(path);
-                if ((attributes & FileAttributes.Directory) != 0)
-                {
-                    throw new TargetsFileException(
-                        $"{path} is unreadable or malformed: path is not a regular file.",
-                        new IOException("path is not a regular file."))
-                    { FilePath = path };
-                }
-
-                if (!LinuxFileType.IsRegular(path))
-                {
-                    throw new TargetsFileException(
-                        $"{path} is unreadable or malformed: path is not a regular file.",
-                        new IOException("path is not a regular file."))
-                    { FilePath = path };
-                }
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-            {
-                // A missing file (or a missing parent directory) is not an error: it means no targets
-                // have been acquired yet.
-                return (new TargetsDocument(), false);
-            }
-            catch (TargetsFileException)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
-            }
-
-        }
-
         string text;
         try
         {
-            text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            text = OperatingSystem.IsLinux()
+                ? await LinuxRegularFileReader.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false)
+                : await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
         }
 
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
@@ -116,33 +82,122 @@ public static class TargetsFile
         }
     }
 
+    /// <summary>
+    /// Reads a Linux path without ever blocking on a special file. The path is opened once with
+    /// <c>O_NONBLOCK</c> — so opening a FIFO whose writer never arrives returns immediately instead of
+    /// waiting — and every subsequent decision is made about that one open description, so a path
+    /// swapped between the check and the read cannot smuggle a FIFO past the check. When the kernel or
+    /// libc cannot answer "is this a regular file?" the read still proceeds against the non-blocking
+    /// handle, which fails closed with an I/O error rather than hanging.
+    /// </summary>
+    private static class LinuxRegularFileReader
+    {
+        private const int ReadOnly = 0x0000;
+        private const int NonBlocking = 0x0800;
+        private const int CloseOnExec = 0x80000;
+
+        private const int NoSuchFileOrDirectory = 2;
+        private const int NotADirectory = 20;
+        private const int PermissionDenied = 13;
+        private const int IsADirectory = 21;
+
+        internal static async Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken)
+        {
+            SafeFileHandle handle;
+            try
+            {
+                handle = Open(path);
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+            {
+                // No usable libc entry point: fall back to the portable managed read. Special files stay
+                // possible here, but so does every platform this code was never able to inspect.
+                return await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            }
+
+            using (handle)
+            {
+                EnsureRegularFile(handle);
+
+                await using var stream = new FileStream(handle, FileAccess.Read);
+                using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+                return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        private static SafeFileHandle Open(string path)
+        {
+            var utf8Path = new byte[Encoding.UTF8.GetByteCount(path) + 1];
+            Encoding.UTF8.GetBytes(path, utf8Path);
+
+            var descriptor = OpenNative(utf8Path, ReadOnly | NonBlocking | CloseOnExec);
+            if (descriptor >= 0)
+            {
+                return new SafeFileHandle((IntPtr)descriptor, ownsHandle: true);
+            }
+
+            var error = Marshal.GetLastPInvokeError();
+            throw error switch
+            {
+                NoSuchFileOrDirectory or NotADirectory => new FileNotFoundException(null, path),
+                PermissionDenied => new UnauthorizedAccessException($"Access to '{path}' is denied."),
+                IsADirectory => new IOException("path is not a regular file."),
+                _ => new IOException($"unable to open the file (errno {error})."),
+            };
+        }
+
+        private static void EnsureRegularFile(SafeFileHandle handle)
+        {
+            if (LinuxFileType.TryGetIsRegular(handle, out var isRegular) && !isRegular)
+            {
+                throw new IOException("path is not a regular file.");
+            }
+        }
+
+        [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+        private static extern int OpenNative(byte[] path, int flags);
+    }
+
+    /// <summary>
+    /// Answers "is this open file description a regular file?" using <c>statx</c> against the handle
+    /// itself (<c>AT_EMPTY_PATH</c>), never the path, so the answer cannot be invalidated by a rename.
+    /// Kernels and libc versions without <c>statx</c> report "unknown" instead of failing: callers must
+    /// stay safe without an answer.
+    /// </summary>
     private static class LinuxFileType
     {
-        private const int AtFileSystemRoot = -100;
-        private const int NoStatxFlags = 0;
-        private const int NoSuchFileOrDirectory = 2;
+        private const int AtEmptyPath = 0x1000;
         private const uint FileTypeMaskRequest = 1;
         private const ushort FileTypeMask = 0xF000;
         private const ushort RegularFile = 0x8000;
 
-        internal static bool IsRegular(string path)
+        private static readonly byte[] EmptyPath = [0];
+
+        internal static bool TryGetIsRegular(SafeFileHandle handle, out bool isRegular)
         {
-            if (Statx(AtFileSystemRoot, path, NoStatxFlags, FileTypeMaskRequest, out var stat) != 0)
+            isRegular = false;
+            try
             {
-                var error = Marshal.GetLastPInvokeError();
-                if (error == NoSuchFileOrDirectory)
+                if (Statx((int)handle.DangerousGetHandle(), EmptyPath, AtEmptyPath, FileTypeMaskRequest, out var stat) != 0)
                 {
-                    throw new FileNotFoundException();
+                    return false;
                 }
 
-                throw new IOException($"Unable to inspect file type (errno {error}).");
+                isRegular = (stat.Mode & FileTypeMask) == RegularFile;
+                return true;
             }
-
-            return (stat.Mode & FileTypeMask) == RegularFile;
+            catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
+            {
+                return false;
+            }
+            finally
+            {
+                GC.KeepAlive(handle);
+            }
         }
 
         [DllImport("libc", EntryPoint = "statx", SetLastError = true)]
-        private static extern int Statx(int directoryFileDescriptor, string path, int flags, uint mask, out LinuxStatx stat);
+        private static extern int Statx(int directoryFileDescriptor, byte[] path, int flags, uint mask, out LinuxStatx stat);
 
         [StructLayout(LayoutKind.Explicit, Size = 256)]
         private struct LinuxStatx

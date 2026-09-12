@@ -319,7 +319,7 @@ public class TargetsFileTests
     }
 
     [Fact]
-    public async Task LoadAsync_LinuxFifo_FailsClosedBeforeOpening()
+    public async Task LoadAsync_LinuxFifo_FailsClosedWithoutBlocking()
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -333,12 +333,25 @@ public class TargetsFileTests
             return;
         }
 
+        // No writer ever opens this FIFO: the loader must return on its own rather than wait for one.
         var loadTask = TargetsFile.LoadAsync(path);
-        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(2)));
-        if (!ReferenceEquals(completed, loadTask))
+        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(5)));
+
+        Assert.Same(loadTask, completed);
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
+        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoadAsync_LinuxCharacterDevice_FailsClosedWithoutReadingEndlessly()
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists("/dev/zero"))
         {
-            await using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+            return;
         }
+
+        var loadTask = TargetsFile.LoadAsync("/dev/zero");
+        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(5)));
 
         Assert.Same(loadTask, completed);
         var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
