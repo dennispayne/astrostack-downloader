@@ -350,8 +350,14 @@ public class TargetsFileTests
             return;
         }
 
-        var loadTask = TargetsFile.LoadAsync("/dev/zero");
+        using var cancellation = new CancellationTokenSource();
+        var loadTask = TargetsFile.LoadAsync("/dev/zero", cancellation.Token);
         var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(5)));
+        if (!ReferenceEquals(completed, loadTask))
+        {
+            // Never leave an unbounded read of /dev/zero running behind a failing assertion.
+            await cancellation.CancelAsync();
+        }
 
         Assert.Same(loadTask, completed);
         var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);

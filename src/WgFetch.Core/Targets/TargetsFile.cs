@@ -101,6 +101,9 @@ public static class TargetsFile
         private const int PermissionDenied = 13;
         private const int IsADirectory = 21;
 
+        private const int ChunkBytes = 64 * 1024;
+        private const int MaxBytes = 8 * 1024 * 1024;
+
         internal static async Task<string> ReadAllTextAsync(string path, CancellationToken cancellationToken)
         {
             SafeFileHandle handle;
@@ -120,9 +123,33 @@ public static class TargetsFile
                 EnsureRegularFile(handle);
 
                 await using var stream = new FileStream(handle, FileAccess.Read);
-                using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
-                return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+                return await ReadBoundedAsync(stream, cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Reads at most <see cref="MaxBytes"/>. A file type this build could not identify — no
+        /// <c>statx</c>, or a kernel that refused it — must still not be able to feed an endless stream
+        /// such as <c>/dev/zero</c> into memory, so the cap, not the type check, is what bounds the read.
+        /// </summary>
+        private static async Task<string> ReadBoundedAsync(Stream stream, CancellationToken cancellationToken)
+        {
+            using var content = new MemoryStream();
+            var chunk = new byte[ChunkBytes];
+            int read;
+            while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                if (content.Length + read > MaxBytes)
+                {
+                    throw new IOException($"file is larger than the {MaxBytes / (1024 * 1024)} MiB targets.yaml limit.");
+                }
+
+                content.Write(chunk, 0, read);
+            }
+
+            content.Position = 0;
+            using var reader = new StreamReader(content, detectEncodingFromByteOrderMarks: true);
+            return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
         }
 
         private static SafeFileHandle Open(string path)
@@ -176,8 +203,10 @@ public static class TargetsFile
         internal static bool TryGetIsRegular(SafeFileHandle handle, out bool isRegular)
         {
             isRegular = false;
+            var referenced = false;
             try
             {
+                handle.DangerousAddRef(ref referenced);
                 if (Statx((int)handle.DangerousGetHandle(), EmptyPath, AtEmptyPath, FileTypeMaskRequest, out var stat) != 0)
                 {
                     return false;
@@ -192,7 +221,10 @@ public static class TargetsFile
             }
             finally
             {
-                GC.KeepAlive(handle);
+                if (referenced)
+                {
+                    handle.DangerousRelease();
+                }
             }
         }
 
