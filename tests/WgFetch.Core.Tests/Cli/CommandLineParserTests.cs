@@ -65,6 +65,55 @@ public sealed class CommandLineParserTests
         Assert.True(parsed.HasErrors);
     }
 
+    [Theory]
+    [InlineData("--arch", "x84", "x64, x86, arm64")]
+    [InlineData("--scope", "machien", "machine, user")]
+    [InlineData("--log-level", "verbse", "trace, debug, info, warn, error, none")]
+    [InlineData("--ai-mode", "automatic", "local, remote, auto")]
+    public void Rejects_invalid_closed_enum_values(string option, string value, string allowed)
+    {
+        var parsed = CommandLineParser.Parse(["resolve", "demo", option, value, "--dry-run"]);
+
+        var error = Assert.Single(parsed.Errors);
+        Assert.Equal($"invalid value '{value}' for {option} (expected one of: {allowed})", error);
+    }
+
+    [Theory]
+    [InlineData("--arch", "x64")]
+    [InlineData("--arch", "x86")]
+    [InlineData("--arch", "arm64")]
+    [InlineData("--scope", "machine")]
+    [InlineData("--scope", "user")]
+    [InlineData("--log-level", "trace")]
+    [InlineData("--log-level", "debug")]
+    [InlineData("--log-level", "info")]
+    [InlineData("--log-level", "warn")]
+    [InlineData("--log-level", "error")]
+    [InlineData("--log-level", "none")]
+    [InlineData("--ai-mode", "local")]
+    [InlineData("--ai-mode", "remote")]
+    [InlineData("--ai-mode", "auto")]
+    public void Accepts_documented_closed_enum_values(string option, string value)
+    {
+        var parsed = CommandLineParser.Parse(["resolve", "demo", option, value, "--dry-run"]);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal(value, parsed.Value(option));
+    }
+
+    [Theory]
+    [InlineData("--arch", "X64", "x64")]
+    [InlineData("--scope", "USER", "user")]
+    [InlineData("--log-level", "WARN", "warn")]
+    [InlineData("--ai-mode", "AUTO", "auto")]
+    public void Normalizes_closed_enum_values(string option, string value, string expected)
+    {
+        var parsed = CommandLineParser.Parse(["resolve", "demo", option, value, "--dry-run"]);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal(expected, parsed.Value(option));
+    }
+
     [Fact]
     public void Requires_a_subcommand_where_the_spec_defines_one()
     {
@@ -110,6 +159,27 @@ public sealed class CommandLineParserTests
         var settings = RunSettings.Resolve(parsed, new WgFetchConfig());
 
         Assert.Equal(Path.GetFullPath("/tmp/canonical-models"), settings.ModelsRoot);
+    }
+
+    [Fact]
+    public void Prereqs_accepts_models_root()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wgfetch-models-root");
+        var alias = Path.Combine(Path.GetTempPath(), "wgfetch-models-dir");
+
+        var canonical = CommandLineParser.Parse(["prereqs", "install", "--models-root", root]);
+        var legacy = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias]);
+        var both = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias, "--models-root", root]);
+        var bothReversed = CommandLineParser.Parse(["prereqs", "install", "--models-root", root, "--models-dir", alias]);
+
+        Assert.False(canonical.HasErrors);
+        Assert.False(legacy.HasErrors);
+        Assert.False(both.HasErrors);
+        Assert.False(bothReversed.HasErrors);
+        Assert.Equal(root, RunSettings.Resolve(canonical, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(alias, RunSettings.Resolve(legacy, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(root, RunSettings.Resolve(both, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(root, RunSettings.Resolve(bothReversed, new WgFetchConfig()).ModelsRoot);
     }
 
     [Fact]
@@ -198,6 +268,10 @@ public sealed class CommandLineParserTests
 
         Assert.Contains("Usage: wgfetch <command> [options]", help, StringComparison.Ordinal);
         Assert.All(CommandLineParser.Commands, c => Assert.Contains(c.Name, help, StringComparison.Ordinal));
+        Assert.Contains(
+            "  recipes list|show|export|validate  Inspect bundled and cached recipes",
+            help,
+            StringComparison.Ordinal);
         Assert.Contains("no telemetry", help, StringComparison.Ordinal);
         Assert.DoesNotContain('\u001b', help);
     }
@@ -208,6 +282,7 @@ public sealed class CommandLineParserTests
         var help = CommandLineParser.RenderHelp("prereqs");
 
         Assert.Contains("--include-llm", help, StringComparison.Ordinal);
+        Assert.Contains("  --include-llm           also fetch Phi-3.5-mini", help, StringComparison.Ordinal);
         Assert.Contains("install|status", help, StringComparison.Ordinal);
     }
 }
