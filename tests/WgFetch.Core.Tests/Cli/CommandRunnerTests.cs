@@ -279,7 +279,7 @@ public sealed class CommandRunnerTests
             SourceLayout.TargetsPath(temp.Path),
             CancellationToken.None);
         var modelsRoot = temp.Combine("models");
-        WriteSparseEmbeddingAssets(modelsRoot, truncateFirstAsset: true);
+        WriteSparseEmbeddingAssets(modelsRoot, firstAssetSizeOverride: FirstEmbeddingAssetSize() - 1);
 
         var stdout = new StringWriter();
         var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
@@ -335,12 +335,10 @@ public sealed class CommandRunnerTests
 
     public static TheoryData<string, long> InvalidSizedEmbeddingAssets()
     {
-        Assert.True(PinnedModels.Embedding.Assets[0].SizeBytes.HasValue, "The oversized regression requires a sized first asset.");
-        var pinnedSize = PinnedModels.Embedding.Assets[0].SizeBytes.GetValueOrDefault();
         return new TheoryData<string, long>
         {
             { "zero-byte", 0 },
-            { "oversized", pinnedSize + 1 },
+            { "oversized", FirstEmbeddingAssetSize() + 1 },
         };
     }
 
@@ -418,10 +416,7 @@ public sealed class CommandRunnerTests
         Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
     }
 
-    private static void WriteSparseEmbeddingAssets(
-        string modelsRoot,
-        bool truncateFirstAsset = false,
-        long? firstAssetSizeOverride = null)
+    private static void WriteSparseEmbeddingAssets(string modelsRoot, long? firstAssetSizeOverride = null)
     {
         // The no-command prerequisite probe is intentionally metadata-only for startup latency; these
         // sparse files exercise its size checks without hashing or writing model-sized byte content.
@@ -432,12 +427,7 @@ public sealed class CommandRunnerTests
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             Assert.True(asset.SizeBytes.HasValue, $"The sparse fixture requires a pinned size for {asset.RelativePath}.");
             var size = asset.SizeBytes.Value;
-            if (truncateFirstAsset && i == 0)
-            {
-                Assert.True(size > 0, "The truncated-asset regression requires a non-empty pinned asset.");
-                size--;
-            }
-            else if (firstAssetSizeOverride.HasValue && i == 0)
+            if (firstAssetSizeOverride.HasValue && i == 0)
             {
                 Assert.True(firstAssetSizeOverride.Value >= 0, "Sparse asset size overrides must be non-negative.");
                 size = firstAssetSizeOverride.Value;
@@ -446,6 +436,21 @@ public sealed class CommandRunnerTests
             using var file = File.Create(path);
             file.SetLength(size);
         }
+    }
+
+    private static long FirstEmbeddingAssetSize()
+    {
+        if (PinnedModels.Embedding.Assets[0].SizeBytes is { } size)
+        {
+            if (size <= 0)
+            {
+                throw new InvalidOperationException("The first embedding asset must be non-empty for invalid-size regressions.");
+            }
+
+            return size;
+        }
+
+        throw new InvalidOperationException("The first embedding asset must have a pinned size for invalid-size regressions.");
     }
 
     [Fact]
