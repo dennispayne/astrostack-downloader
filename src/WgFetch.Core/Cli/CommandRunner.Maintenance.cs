@@ -93,7 +93,16 @@ public sealed partial class CommandRunner
                     path,
                     current =>
                     {
-                        ConfigSettings.TrySet(current, parsed.Positional[0], parsed.Positional[1], out var latest, out _);
+                        if (!ConfigSettings.TrySet(
+                            current,
+                            parsed.Positional[0],
+                            parsed.Positional[1],
+                            out var latest,
+                            out var updateError))
+                        {
+                            throw new InvalidOperationException(updateError);
+                        }
+
                         return latest;
                     },
                     cancellationToken).ConfigureAwait(false);
@@ -118,7 +127,15 @@ public sealed partial class CommandRunner
                     path,
                     current =>
                     {
-                        ConfigSettings.TryUnset(current, parsed.Positional[0], out var latest, out _);
+                        if (!ConfigSettings.TryUnset(
+                            current,
+                            parsed.Positional[0],
+                            out var latest,
+                            out var updateError))
+                        {
+                            throw new InvalidOperationException(updateError);
+                        }
+
                         return latest;
                     },
                     cancellationToken).ConfigureAwait(false);
