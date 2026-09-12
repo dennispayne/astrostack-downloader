@@ -436,6 +436,8 @@ public sealed class CommandRunnerTests
 
             if (firstAssetSizeOverride.HasValue && i == 0)
             {
+                // Keep future invalid-size scenarios from failing later with FileStream.SetLength's
+                // less-specific range exception if a negative override is accidentally supplied.
                 if (firstAssetSizeOverride.Value < 0)
                 {
                     throw new ArgumentOutOfRangeException(
