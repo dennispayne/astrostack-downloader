@@ -267,7 +267,7 @@ public sealed class PrereqInstaller
                 .ConfigureAwait(false);
             return manifest?.Models ?? [];
         }
-        catch (JsonException)
+        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
             return [];
         }
