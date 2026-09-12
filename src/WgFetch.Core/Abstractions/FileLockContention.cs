@@ -41,6 +41,6 @@ internal static class FileLockContention
         // On Unix an exclusive open that loses the advisory lock surfaces the native errno as HResult.
         // EBUSY is 16 on Linux/BSD/macOS, while EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on BSD/macOS.
         var eAgain = (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) ? EAgainBsd : EAgainLinux;
-        return exception.HResult is EBusy || exception.HResult == eAgain;
+        return exception.HResult == EBusy || exception.HResult == eAgain;
     }
 }
