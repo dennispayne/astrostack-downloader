@@ -53,7 +53,7 @@ public sealed partial class CommandRunner
                 continue;
             }
 
-            var prompt = new TextPrompt<string>($"New value for {choice} (leave blank to cancel)");
+            var prompt = new TextPrompt<string>($"New value for {choice} (leave blank to cancel)").AllowEmpty();
             var value = console.Prompt(prompt);
             if (string.IsNullOrEmpty(value))
             {
@@ -135,7 +135,7 @@ public sealed partial class CommandRunner
 
         if (choice == ChangeModelsRootChoice)
         {
-            var root = console.Prompt(new TextPrompt<string>("Models root"));
+            var root = console.Prompt(new TextPrompt<string>("Models root (leave blank to cancel)").AllowEmpty());
             if (string.IsNullOrWhiteSpace(root))
             {
                 return ExitCode.Success;

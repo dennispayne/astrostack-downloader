@@ -216,6 +216,34 @@ public sealed class PinnedModelsTests
         Assert.DoesNotContain("unselected", manifest, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Selective_install_merges_with_a_previously_installed_model_in_the_manifest()
+    {
+        using var temp = new TempDirectory();
+        var selectedBytes = "selected model"u8.ToArray();
+        var otherBytes = "other model"u8.ToArray();
+        var selected = TestModel("selected", "https://models.example/selected.bin", selectedBytes);
+        var unselected = TestModel("unselected", "https://models.example/unselected.bin", otherBytes);
+        var http = new StubHttpGateway()
+            .Map(selected.Assets[0].Url, StubResponse.Binary(selectedBytes))
+            .Map(unselected.Assets[0].Url, StubResponse.Binary(otherBytes));
+        var installer = new PrereqInstaller(http, models: [selected, unselected]);
+
+        var first = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([selected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+        Assert.True(first.Success);
+
+        var second = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([unselected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+        Assert.True(second.Success);
+
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.Contains("\"id\": \"selected\"", manifest, StringComparison.Ordinal);
+        Assert.Contains("\"id\": \"unselected\"", manifest, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(temp.Path, selected.Id, selected.Assets[0].RelativePath)));
+        Assert.True(File.Exists(Path.Combine(temp.Path, unselected.Id, unselected.Assets[0].RelativePath)));
+    }
+
     private static PinnedModel TestModel(string id, string url, byte[] bytes) =>
         new(id, id, "test/repository", "revision", IsLanguageModel: false,
         [new ModelAsset("model.bin", url, bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);

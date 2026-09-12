@@ -1,15 +1,21 @@
 using System.Globalization;
+using WgFetch.Core.Logging;
 using WgFetch.Core.Search;
 namespace WgFetch.Core.Configuration;
 
-/// <summary>Maps the persisted configuration schema to its command-line setting names.</summary>
+/// <summary>
+/// Maps the persisted configuration schema to its command-line setting names. `aiKey`, `searchKey`
+/// and `githubToken` are credentials (docs/REQUIREMENTS.md, "Configuration and inputs") and are
+/// persisted like every other setting; they are redacted only when displayed via
+/// <see cref="GetRedactedValue"/>/<see cref="GetRedactedValues"/>.
+/// </summary>
 public static class ConfigSettings
 {
     public static IReadOnlyList<string> Names { get; } =
     [
         "outputDirectory", "cacheDirectory", "modelsRoot", "threshold", "architecture", "scope",
-        "keepVersions", "aiMode", "aiEndpoint", "aiModel", "searchProvider",
-        "searchEndpoint", "logLevel", "parallelDownloads", "maxPerHost", "plain",
+        "keepVersions", "aiMode", "aiEndpoint", "aiModel", "aiKey", "searchProvider",
+        "searchEndpoint", "searchKey", "githubToken", "logLevel", "parallelDownloads", "maxPerHost", "plain",
     ];
 
     public static bool TrySet(WgFetchConfig config, string name, string value, out WgFetchConfig updated, out string? error)
@@ -17,14 +23,19 @@ public static class ConfigSettings
         var normalized = Normalize(name);
         if (normalized is "aikey" or "searchkey" or "githubtoken")
         {
-            updated = config;
-            error = normalized switch
+            if (string.IsNullOrWhiteSpace(value))
             {
-                "aikey" => "aiKey cannot be stored in the config file; supply it through WGFETCH_AI_KEY.",
-                "searchkey" => "searchKey cannot be stored in the config file; supply it through WGFETCH_SEARCH_KEY.",
-                _ => "githubToken cannot be stored in the config file; supply it through GITHUB_TOKEN.",
+                updated = config; error = $"{name} must not be blank."; return false;
+            }
+
+            updated = normalized switch
+            {
+                "aikey" => config with { AiKey = value },
+                "searchkey" => config with { SearchKey = value },
+                _ => config with { GithubToken = value },
             };
-            return false;
+            error = null;
+            return true;
         }
 
         if (normalized is "architecture" or "scope" or "aimode")
@@ -52,6 +63,11 @@ public static class ConfigSettings
             updated = config; error = $"searchProvider must be one of: {string.Join(", ", SearchProviderFactory.KnownNames)}."; return false;
         }
 
+        if (normalized == "loglevel" && !LogLevelParser.IsValid(value))
+        {
+            updated = config; error = "logLevel must be one of: trace, debug, info, warn, error, none."; return false;
+        }
+
         return normalized switch
         {
             "outputdirectory" => SetValidatedPath(config, value, "outputDirectory", static (c, v) => c with { OutputDirectory = v }, out updated, out error),
@@ -65,8 +81,7 @@ public static class ConfigSettings
             "searchprovider" => SetString(config, value, static (c, v) => c with { SearchProvider = v }, out updated, out error),
             "searchendpoint" => SetString(config, value, static (c, v) => c with { SearchEndpoint = v }, out updated, out error),
             "loglevel" => SetString(config, value, static (c, v) => c with { LogLevel = v }, out updated, out error),
-            "threshold" => SetDouble(config, value, out updated, out error),
-            "keepversions" => SetInt(config, value, "keepVersions", 1, int.MaxValue, static (c, v) => c with { KeepVersions = v }, out updated, out error),
+            "threshold" => SetDouble(config, value, out updated, out error),            "keepversions" => SetInt(config, value, "keepVersions", 1, int.MaxValue, static (c, v) => c with { KeepVersions = v }, out updated, out error),
             "paralleldownloads" => SetInt(config, value, "parallelDownloads", 1, 16, static (c, v) => c with { ParallelDownloads = v }, out updated, out error),
             "maxperhost" => SetInt(config, value, "maxPerHost", 1, 8, static (c, v) => c with { MaxPerHost = v }, out updated, out error),
             "plain" => SetBool(config, value, out updated, out error),
@@ -88,8 +103,11 @@ public static class ConfigSettings
             case "aimode": updated = config with { AiMode = null }; break;
             case "aiendpoint": updated = config with { AiEndpoint = null }; break;
             case "aimodel": updated = config with { AiModel = null }; break;
+            case "aikey": updated = config with { AiKey = null }; break;
             case "searchprovider": updated = config with { SearchProvider = null }; break;
             case "searchendpoint": updated = config with { SearchEndpoint = null }; break;
+            case "searchkey": updated = config with { SearchKey = null }; break;
+            case "githubtoken": updated = config with { GithubToken = null }; break;
             case "loglevel": updated = config with { LogLevel = null }; break;
             case "paralleldownloads": updated = config with { ParallelDownloads = null }; break;
             case "maxperhost": updated = config with { MaxPerHost = null }; break;
@@ -122,8 +140,9 @@ public static class ConfigSettings
             "modelsroot" => redacted.ModelsRoot, "threshold" => Format(redacted.Threshold),
             "architecture" => redacted.Architecture, "scope" => redacted.Scope,
             "keepversions" => Format(redacted.KeepVersions), "aimode" => redacted.AiMode,
-            "aiendpoint" => redacted.AiEndpoint, "aimodel" => redacted.AiModel,
+            "aiendpoint" => redacted.AiEndpoint, "aimodel" => redacted.AiModel, "aikey" => redacted.AiKey,
             "searchprovider" => redacted.SearchProvider, "searchendpoint" => redacted.SearchEndpoint,
+            "searchkey" => redacted.SearchKey, "githubtoken" => redacted.GithubToken,
             "loglevel" => redacted.LogLevel, "paralleldownloads" => Format(redacted.ParallelDownloads),
             "maxperhost" => Format(redacted.MaxPerHost), "plain" => Format(redacted.Plain),
             _ => UnknownValue(name, out error),

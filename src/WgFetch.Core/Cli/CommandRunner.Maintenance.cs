@@ -27,6 +27,12 @@ public sealed partial class CommandRunner
         TerminalMode terminal,
         CancellationToken cancellationToken)
     {
+        if (parsed.SubCommand is not null && parsed.Has("--interactive"))
+        {
+            _stderr.WriteLine("wgfetch config: --interactive cannot be combined with a subcommand.");
+            return ExitCode.UsageError;
+        }
+
         if (parsed.SubCommand is null || parsed.Has("--interactive"))
         {
             return await InteractiveConfigAsync(config, parsed.Value("--config"), terminal, cancellationToken).ConfigureAwait(false);

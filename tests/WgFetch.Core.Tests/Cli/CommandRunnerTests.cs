@@ -411,8 +411,22 @@ public sealed class CommandRunnerTests
         Assert.Contains("requires an attached terminal", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Config_rejects_interactive_combined_with_a_subcommand()
+    {
+        using var temp = new TempDirectory();
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(
+            ["config", "list", "--interactive", "--config", temp.Combine("config.json")],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("cannot be combined with a subcommand", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     [Theory]
-    [InlineData("aiKey", "secret")]
+    [InlineData("aiKey", "")]
     [InlineData("searchProvider", "typo")]
     [InlineData("modelsRoot", "")]
     public async Task Config_rejects_invalid_or_nonpersistable_values(string name, string value)
@@ -427,10 +441,30 @@ public sealed class CommandRunnerTests
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.False(File.Exists(temp.Combine("config.json")));
         Assert.NotEmpty(stderr.ToString());
-        if (name == "aiKey")
-        {
-            Assert.Contains("WGFETCH_AI_KEY", stderr.ToString(), StringComparison.Ordinal);
-        }
+    }
+
+    [Theory]
+    [InlineData("aiKey")]
+    [InlineData("searchKey")]
+    [InlineData("githubToken")]
+    public async Task Config_persists_credentials_and_redacts_them_on_read(string name)
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        var (setter, _, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await setter.RunAsync(
+            ["config", "set", name, "super-secret-value", "--config", configPath],
+            CancellationToken.None));
+
+        var (getter, getOut, _) = CreateRunner();
+        Assert.Equal(ExitCode.Success, await getter.RunAsync(
+            ["config", "get", name, "--config", configPath],
+            CancellationToken.None));
+        Assert.DoesNotContain("super-secret-value", getOut.ToString(), StringComparison.Ordinal);
+        Assert.Contains("REDACTED", getOut.ToString(), StringComparison.OrdinalIgnoreCase);
+
+        var raw = await File.ReadAllTextAsync(configPath, CancellationToken.None);
+        Assert.Contains("super-secret-value", raw, StringComparison.Ordinal);
     }
 
     [Fact]

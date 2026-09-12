@@ -8,6 +8,7 @@ using WgFetch.Core.Inference;
 using WgFetch.Core.Logging;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
+using WgFetch.Core.Prereqs;
 using WgFetch.Core.Progress;
 using WgFetch.Core.Recipes;
 

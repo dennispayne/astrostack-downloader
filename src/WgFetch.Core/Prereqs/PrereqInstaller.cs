@@ -222,10 +222,16 @@ public sealed class PrereqInstaller
 
         if (!dryRun && installed.Count > 0)
         {
+            var existing = await LoadExistingManifestModelsAsync(modelsRoot, cancellationToken).ConfigureAwait(false);
+            var merged = existing
+                .Where(model => installed.All(newModel => !string.Equals(newModel.Id, model.Id, StringComparison.Ordinal)))
+                .Concat(installed)
+                .ToArray();
+
             var manifest = new PrereqInstallManifest
             {
                 InstalledUtc = DateTimeOffset.UtcNow,
-                Models = installed,
+                Models = merged,
             };
 
             Directory.CreateDirectory(modelsRoot);
@@ -237,6 +243,34 @@ public sealed class PrereqInstaller
 
         var status = await StatusAsync(modelsRoot, _models, cancellationToken).ConfigureAwait(false);
         return new PrereqInstallResult(success, messages, status);
+    }
+
+    /// <summary>
+    /// Loads previously installed model entries from the manifest, so a selective install never drops
+    /// the record of models installed in an earlier run. A missing or malformed manifest yields none.
+    /// </summary>
+    private static async Task<IReadOnlyList<PrereqInstalledModel>> LoadExistingManifestModelsAsync(
+        string modelsRoot,
+        CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(modelsRoot, "install-manifest.json");
+        if (!File.Exists(path))
+        {
+            return [];
+        }
+
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            var manifest = await JsonSerializer
+                .DeserializeAsync(stream, PrereqJsonContext.Default.PrereqInstallManifest, cancellationToken)
+                .ConfigureAwait(false);
+            return manifest?.Models ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     private async Task<PrereqInstalledFile?> DownloadVerifiedAsync(

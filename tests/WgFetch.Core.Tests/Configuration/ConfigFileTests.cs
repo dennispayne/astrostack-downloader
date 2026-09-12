@@ -79,7 +79,7 @@ public sealed class ConfigFileTests
     }
 
     [Fact]
-    public async Task Saving_never_persists_credentials()
+    public async Task Saving_persists_credentials()
     {
         using var temp = new TempDirectory();
         var path = temp.Combine("config.json");
@@ -90,11 +90,11 @@ public sealed class ConfigFileTests
             CancellationToken.None);
 
         var json = await File.ReadAllTextAsync(path, CancellationToken.None);
-        Assert.DoesNotContain("secret", json, StringComparison.Ordinal);
+        Assert.Contains("ai-secret", json, StringComparison.Ordinal);
         var loaded = await ConfigFile.LoadAsync(path, CancellationToken.None);
-        Assert.Null(loaded.AiKey);
-        Assert.Null(loaded.SearchKey);
-        Assert.Null(loaded.GithubToken);
+        Assert.Equal("ai-secret", loaded.AiKey);
+        Assert.Equal("search-secret", loaded.SearchKey);
+        Assert.Equal("github-secret", loaded.GithubToken);
     }
 }
 
@@ -165,12 +165,33 @@ public sealed class ConfigRedactionTests
         }
 
         [Theory]
+        [InlineData("trace")]
+        [InlineData("debug")]
+        [InlineData("info")]
+        [InlineData("warn")]
+        [InlineData("error")]
+        [InlineData("none")]
+        public void Accepts_every_known_log_level(string value)
+        {
+            Assert.True(ConfigSettings.TrySet(new WgFetchConfig(), "logLevel", value, out var updated, out var error), error);
+            Assert.Equal(value, updated.LogLevel);
+        }
+
+        [Fact]
+        public void Rejects_an_unknown_log_level()
+        {
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "logLevel", "verbose", out _, out var error));
+            Assert.Contains("logLevel must be one of", error, StringComparison.Ordinal);
+        }
+
+        [Theory]
         [InlineData("aiKey")]
         [InlineData("searchKey")]
         [InlineData("githubToken")]
-        public void Rejects_credential_settings(string name)
+        public void Accepts_credential_settings(string name)
         {
-            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), name, "secret", out _, out _));
+            Assert.True(ConfigSettings.TrySet(new WgFetchConfig(), name, "secret", out var updated, out var error), error);
+            Assert.Equal(SecretRedactor.Placeholder, ConfigSettings.GetRedactedValue(updated, name, out _));
         }
     }
 
