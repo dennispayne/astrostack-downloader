@@ -29,6 +29,20 @@ public sealed class VerificationGateTests
     }
 
     [Fact]
+    public async Task Redirect_follower_rejects_a_relative_candidate_before_any_request()
+    {
+        var http = new StubHttpGateway();
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri("setup.exe", UriKind.Relative) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.NotHttps, result.FailureStatus);
+        Assert.Empty(http.Requests);
+    }
+
+    [Fact]
     public async Task Redirect_follower_rejects_a_redirect_to_http()
     {
         const string url = "https://github.com/x/setup.exe";

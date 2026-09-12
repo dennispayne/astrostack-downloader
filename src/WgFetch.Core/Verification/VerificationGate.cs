@@ -309,9 +309,10 @@ public sealed class VerificationGate
         ArgumentNullException.ThrowIfNull(allowlist);
 
         var candidate = request.Url;
-        if (!candidate.IsAbsoluteUri || !string.Equals(candidate.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        var candidateScheme = candidate.IsAbsoluteUri ? candidate.Scheme : string.Empty;
+        if (!string.Equals(candidateScheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            return Failed(candidate, null, [], VerificationStatus.NotHttps, $"scheme '{candidate.Scheme}' is not https");
+            return Failed(candidate, null, [], VerificationStatus.NotHttps, $"scheme '{candidateScheme}' is not https");
         }
 
         if (!allowlist.Allows(candidate))
