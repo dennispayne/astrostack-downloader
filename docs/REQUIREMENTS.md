@@ -110,6 +110,7 @@ Treat user data as radioactive. This runs on a personal machine and must be defe
 ## Prerequisites — frictionless first run
 
 - `wgfetch prereqs install [--models-root <path>] [--models-dir <path>] [--include-llm] [--dry-run]` downloads pinned models from Hugging Face, verifies each against **SHA256 hashes compiled into the binary**, and writes an install manifest. `--models-root` is canonical; `--models-dir` is a deprecated alias, and `--models-root` wins when both are supplied. Hard-fails on mismatch. `wgfetch prereqs status` reports presence, paths, sizes and verification state.
+- **Prerequisite download allowlist:** model downloads follow redirects only within `huggingface.co`, `us.aws.cdn.hf.co`, `cas-bridge.xethub.hf.co`, `cdn-lfs.huggingface.co` and `cdn-lfs-us-1.huggingface.co`. A redirect to any other host, or to a non-HTTPS target, is a hard failure.
 - `--download-prereqs` on `fetch`/`resolve`/`refresh` fetches missing models inline with identical verification. Off by default; when off, a missing model errors with the expected file, its size and the exact command to obtain it.
 - **Defaults:** models at `%LOCALAPPDATA%\wgfetch\models\{e5-small-v2,phi-3.5-mini-instruct-onnx}\`; output at `...\source\`; cache at `...\cache\`. First use must be exactly `wgfetch prereqs install` then `wgfetch fetch nina`, no other flags.
 

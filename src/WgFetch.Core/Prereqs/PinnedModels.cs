@@ -118,7 +118,8 @@ public static class PinnedModels
         All.FirstOrDefault(m => string.Equals(m.Id, id, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// Hosts contacted by <c>wgfetch prereqs install</c>; documented in the README. Hugging Face serves
+    /// Hosts contacted by <c>wgfetch prereqs install</c>; documented in docs/REQUIREMENTS.md
+    /// ("Prerequisites") and docs/VERIFICATION-AND-PRIVACY.md. Hugging Face serves
     /// the metadata request from <c>huggingface.co</c> and then redirects large (LFS/Xet-backed) blobs
     /// to a CDN host, so an allowlist that covers only the first host will fail to fetch any weights.
     /// </summary>

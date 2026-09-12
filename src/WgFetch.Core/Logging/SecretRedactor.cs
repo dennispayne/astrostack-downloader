@@ -26,7 +26,7 @@ public static partial class SecretRedactor
         ["credential", "signature", "token", "hmac"];
 
     private static readonly string[] SensitiveHeaderFragments =
-        ["api-key", "apikey", "credential", "password", "token", "secret"];
+        ["api-key", "apikey", "authorization", "credential", "password", "token", "secret"];
 
     private static readonly HashSet<string> SensitiveHeaderNames = new(StringComparer.OrdinalIgnoreCase)
     {

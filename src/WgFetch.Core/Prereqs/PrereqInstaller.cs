@@ -238,25 +238,25 @@ public sealed class PrereqInstaller
         var temp = path + ".tmp";
         try
         {
-            await using var redirected = await _verificationGate.FollowAllowedRedirectsAsync(
+            await using (var redirected = await _verificationGate.FollowAllowedRedirectsAsync(
                 new HttpRequestSpec { Url = new Uri(asset.Url), Verb = HttpVerb.Get },
                 DownloadAllowlist,
-                cancellationToken).ConfigureAwait(false);
-            if (!redirected.Succeeded)
+                cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("Model download redirect verification failed for {Asset}: {Reason}.", asset.RelativePath, redirected.FailureReason);
-                return null;
-            }
+                if (!redirected.Succeeded)
+                {
+                    _logger.LogError("Model download redirect verification failed for {Asset}: {Reason}.", asset.RelativePath, redirected.FailureReason);
+                    return null;
+                }
 
-            var response = redirected.Response!;
-            if (!response.IsSuccess)
-            {
-                _logger.LogError("Model download failed with HTTP {Status} for {Asset}.", response.StatusCode, asset.RelativePath);
-                return null;
-            }
+                var response = redirected.Response!;
+                if (!response.IsSuccess)
+                {
+                    _logger.LogError("Model download failed with HTTP {Status} for {Asset}.", response.StatusCode, asset.RelativePath);
+                    return null;
+                }
 
-            await using (var file = File.Create(temp))
-            {
+                await using var file = File.Create(temp);
                 await response.Body.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
             }
 

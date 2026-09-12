@@ -88,6 +88,8 @@ public sealed class SecretRedactorTests
     [Theory]
     [InlineData("X-Auth")]
     [InlineData("X-Authorization")]
+    [InlineData("X-Custom-Authorization")]
+    [InlineData("Proxy-Authorization")]
     public void Recognises_authentication_headers_as_sensitive(string name) =>
         Assert.True(SecretRedactor.IsSensitiveHeaderName(name));
 
