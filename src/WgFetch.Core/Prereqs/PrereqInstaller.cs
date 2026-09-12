@@ -215,7 +215,7 @@ public sealed class PrereqInstaller
             }
             catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
             {
-                continue;
+                return;
             }
 
             if ((attributes & FileAttributes.ReparsePoint) != 0)
@@ -314,9 +314,7 @@ public sealed class PrereqInstaller
             {
                 continue;
             }
-
             var directory = ModelDirectory(modelsRoot, model);
-            RejectReparsePointComponents(modelsRoot, directory, $"model directory for '{model.Id}'");
 
             if (!model.FullyPinned)
             {
@@ -342,7 +340,6 @@ public sealed class PrereqInstaller
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var path = ResolveConfinedPath(directory, asset.RelativePath, $"asset relative path '{asset.RelativePath}'");
-                RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
                 if (File.Exists(path))
@@ -355,7 +352,6 @@ public sealed class PrereqInstaller
                     }
                 }
 
-                RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
                 var downloaded = await DownloadVerifiedAsync(asset, path, cancellationToken).ConfigureAwait(false);
                 if (downloaded is null)
                 {

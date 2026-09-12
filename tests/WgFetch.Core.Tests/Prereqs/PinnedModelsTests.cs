@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using WgFetch.Core.Prereqs;
 using WgFetch.Core.Tests.Support;
 using Xunit;
+using Xunit.Sdk;
 
 namespace WgFetch.Core.Tests.Prereqs;
 
@@ -225,7 +226,7 @@ public sealed class PinnedModelsTests
         await File.WriteAllTextAsync(outside, "outside", CancellationToken.None);
         if (!TryCreateFileSymlink(Path.Combine(modelDirectory, "model.bin"), outside))
         {
-            return;
+            throw SkipException.ForSkip("File symlinks are not supported by this platform or test environment.");
         }
 
         var model = TestModel("demo-model", "https://huggingface.co/test/model.bin", "bytes"u8.ToArray());
@@ -259,7 +260,7 @@ public sealed class PinnedModelsTests
         var link = temp.Combine("linked-model");
         if (!TryCreateDirectorySymlink(link, outside))
         {
-            return;
+            throw SkipException.ForSkip("Directory symlinks are not supported by this platform or test environment.");
         }
 
         var bytes = "bytes"u8.ToArray();
@@ -285,7 +286,7 @@ public sealed class PinnedModelsTests
         Directory.CreateDirectory(outside);
         if (!TryCreateDirectorySymlink(Path.Combine(modelDirectory, "nested"), outside))
         {
-            return;
+            throw SkipException.ForSkip("Directory symlinks are not supported by this platform or test environment.");
         }
 
         var bytes = "bytes"u8.ToArray();

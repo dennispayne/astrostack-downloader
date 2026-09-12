@@ -166,8 +166,14 @@ public sealed partial class CommandRunner
         }
     }
 
-    private static bool IsConfigCredentialName(string name) =>
-        name.Replace("-", string.Empty, StringComparison.Ordinal).ToLowerInvariant() is "aikey" or "searchkey" or "githubtoken";
+    private static bool IsConfigCredentialName(string name)
+    {
+        var normalized = name.Replace("-", string.Empty, StringComparison.Ordinal);
+        return SecretSettingNames.Any(setting => string.Equals(
+            setting.Replace("-", string.Empty, StringComparison.Ordinal),
+            normalized,
+            StringComparison.OrdinalIgnoreCase));
+    }
 
     private static async Task<(WgFetchConfig? Updated, string? InvalidConfigMessage)> TryUpdateConfigAsync(
         string path,
