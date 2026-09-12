@@ -361,7 +361,12 @@ public class TargetsFileTests
 
         Assert.Same(loadTask, completed);
         var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
-        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+
+        // With statx the type check rejects the device outright; without it the read is still bounded.
+        Assert.True(
+            ex.Message.Contains("not a regular file", StringComparison.Ordinal) ||
+            ex.Message.Contains("targets.yaml limit", StringComparison.Ordinal),
+            ex.Message);
     }
 
     [Fact]

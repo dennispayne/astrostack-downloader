@@ -118,11 +118,22 @@ public static class TargetsFile
                 return await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
             }
 
-            using (handle)
+            FileStream stream;
+            try
             {
                 EnsureRegularFile(handle);
 
-                await using var stream = new FileStream(handle, FileAccess.Read);
+                // From here the stream owns the descriptor and closes it on dispose.
+                stream = new FileStream(handle, FileAccess.Read);
+            }
+            catch
+            {
+                handle.Dispose();
+                throw;
+            }
+
+            await using (stream.ConfigureAwait(false))
+            {
                 return await ReadBoundedAsync(stream, cancellationToken).ConfigureAwait(false);
             }
         }
