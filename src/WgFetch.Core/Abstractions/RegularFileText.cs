@@ -247,6 +247,7 @@ internal static class RegularFileText
         private const uint FileAttributeReparsePoint = 0x00000400;
         private const int Win32ErrorFileNotFound = 2;
         private const int Win32ErrorPathNotFound = 3;
+        // FILE_INFO_BY_HANDLE_CLASS.FileAttributeTagInfo, which writes FILE_ATTRIBUTE_TAG_INFO.
         private const int FileInformationClassAttributeTag = 9;
 
         internal static async Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)

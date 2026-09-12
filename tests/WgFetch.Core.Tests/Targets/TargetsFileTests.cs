@@ -136,6 +136,15 @@ public class TargetsFileTests
         Assert.Contains("root must be a mapping", ex.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Parse_EmptyDocument_ReturnsDefaultDocument()
+    {
+        TargetsDocument document = TargetsFile.Parse(string.Empty);
+
+        Assert.Equal(TargetsDocument.CurrentSchemaVersion, document.Version);
+        Assert.Empty(document.Targets);
+    }
+
     [Theory]
     [InlineData("targets: nina")]
     [InlineData("targets: { name: nina }")]
