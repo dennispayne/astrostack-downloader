@@ -120,10 +120,13 @@ public static partial class SecretRedactor
 
                 var rawName = parts[i][..eq];
                 var rawValue = parts[i][(eq + 1)..];
-                var name = Uri.UnescapeDataString(rawName);
-                if (SensitiveQueryKeys.Contains(name) || ContainsSecret(DecodeQueryComponent(rawValue), secrets))
+                var name = DecodeQueryComponent(rawName);
+                var secretInName = ContainsSecret(name, secrets);
+                if (SensitiveQueryKeys.Contains(name) ||
+                    secretInName ||
+                    ContainsSecret(DecodeQueryComponent(rawValue), secrets))
                 {
-                    parts[i] = rawName + "=" + Placeholder;
+                    parts[i] = (secretInName ? Placeholder : rawName) + "=" + Placeholder;
                 }
             }
 

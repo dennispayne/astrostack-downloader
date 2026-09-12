@@ -78,6 +78,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         Assert.Empty(stderr.ToString());
         var saved = await ConfigFile.LoadAsync(configPath, CancellationToken.None);
         Assert.Equal(temp.Combine("source"), saved.OutputDirectory);
+        Assert.True(Directory.Exists(temp.Combine("source")));
     }
 
     [Fact]
@@ -139,6 +140,74 @@ public sealed class CommandRunnerInteractiveConfigTests
     }
 
     [Fact]
+    public async Task Interactive_session_installs_all_models()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = temp.Combine("models") }, configPath, CancellationToken.None);
+        var firstBytes = "first model"u8.ToArray();
+        var secondBytes = "second model"u8.ToArray();
+        var first = TestModel("first-model", "https://models.example/first.bin", firstBytes);
+        var second = TestModel("second-model", "https://models.example/second.bin", secondBytes);
+        var http = new StubHttpGateway()
+            .Map(first.Assets[0].Url, StubResponse.Binary(firstBytes))
+            .Map(second.Assets[0].Url, StubResponse.Binary(secondBytes));
+
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, 2); // Install all follows the two individual model choices.
+        SelectByIndex(console, ExitIndex);
+        var (runner, _, _) = CreateInteractiveRunner(console, models: [first, second], http: http);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.True(File.Exists(temp.Combine("models", "first-model", "model.bin")));
+        Assert.True(File.Exists(temp.Combine("models", "second-model", "model.bin")));
+    }
+
+    [Fact]
+    public async Task Interactive_session_persists_a_changed_models_root()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        var newRoot = temp.Combine("new-models");
+        var model = TestModel("demo-model", "https://models.example/demo.bin", "bytes"u8.ToArray());
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, 2); // Change models root follows install-one and install-all.
+        console.Input.PushTextWithEnter(newRoot);
+        SelectByIndex(console, ExitIndex);
+        var (runner, _, _) = CreateInteractiveRunner(console, models: [model]);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.True(Directory.Exists(newRoot));
+        var saved = await ConfigFile.LoadAsync(configPath, CancellationToken.None);
+        Assert.Equal(newRoot, saved.ModelsRoot);
+    }
+
+    [Fact]
+    public async Task Interactive_install_failure_is_written_to_the_redacting_logger()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = temp.Combine("models") }, configPath, CancellationToken.None);
+        var model = TestModel("demo-model", "https://models.example/demo.bin", "bytes"u8.ToArray());
+        var http = new StubHttpGateway().Map(model.Assets[0].Url, StubResponse.Status(503));
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, 0);
+        var (runner, _, stderr) = CreateInteractiveRunner(console, models: [model], http: http);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.NotEqual(ExitCode.Success, exit);
+        Assert.Contains("HTTP 503", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Interactive_prerequisites_menu_shows_progress_while_scanning_model_status()
     {
         using var temp = new TempDirectory();
@@ -170,5 +239,17 @@ public sealed class CommandRunnerInteractiveConfigTests
 
         Assert.Equal(ExitCode.Success, exit);
         Assert.DoesNotContain("requires an attached terminal", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Plain_interactive_console_emits_no_ansi_escape_sequences()
+    {
+        var output = new StringWriter();
+        var console = CommandRunner.CreateInteractiveConsole(output, plainRendering: true);
+
+        console.MarkupLine("[red]plain output[/]");
+
+        Assert.Equal($"plain output{Environment.NewLine}", output.ToString());
+        Assert.DoesNotContain('\u001b', output.ToString());
     }
 }

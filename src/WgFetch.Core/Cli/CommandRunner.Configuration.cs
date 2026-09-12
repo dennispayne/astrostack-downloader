@@ -22,6 +22,7 @@ public sealed partial class CommandRunner
         WgFetchConfig config,
         string? configuredPath,
         bool isInteractiveTerminal,
+        bool plainRendering,
         CancellationToken cancellationToken)
     {
         if (!isInteractiveTerminal)
@@ -31,7 +32,7 @@ public sealed partial class CommandRunner
         }
 
         var path = configuredPath ?? ConfigFile.DefaultPath;
-        var console = _dependencies.InteractiveConsole ?? AnsiConsole.Console;
+        var console = _dependencies.InteractiveConsole ?? CreateInteractiveConsole(_stdout, plainRendering);
         var current = config;
         while (true)
         {
@@ -108,6 +109,17 @@ public sealed partial class CommandRunner
             console.MarkupLine("[green]Saved.[/]");
         }
     }
+
+    internal static IAnsiConsole CreateInteractiveConsole(TextWriter output, bool plainRendering) =>
+        plainRendering
+            ? AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Ansi = AnsiSupport.No,
+                ColorSystem = ColorSystemSupport.NoColors,
+                Interactive = InteractionSupport.Yes,
+                Out = new AnsiConsoleOutput(output),
+            })
+            : AnsiConsole.Console;
 
     private static void RenderConfig(IAnsiConsole console, WgFetchConfig config)
     {

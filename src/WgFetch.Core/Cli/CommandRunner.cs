@@ -142,6 +142,12 @@ public sealed partial class CommandRunner
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
         if (parsed.Command == "config")
         {
+            _loggerProvider = new RedactingConsoleLoggerProvider(
+                _stderr,
+                LogLevelParser.Parse(parsed.Value("--log-level") ?? config.LogLevel),
+                config.Secrets);
+            _logger = _loggerProvider.CreateLogger("wgfetch");
+
             if (parsed.Has("--json"))
             {
                 _events = new JsonEventWriter(_stdout, config.Secrets, deterministicOrder: true);
@@ -154,7 +160,8 @@ public sealed partial class CommandRunner
                 parsed.Has("--json"));
             var isInteractiveTerminal = _dependencies.InteractiveTerminalOverride
                 ?? TerminalCapability.IsInteractiveTerminal(configEnvironment);
-            return await ConfigAsync(parsed, config, isInteractiveTerminal, cancellationToken).ConfigureAwait(false);
+            var plainRendering = TerminalCapability.Detect(configEnvironment) == TerminalMode.Plain;
+            return await ConfigAsync(parsed, config, isInteractiveTerminal, plainRendering, cancellationToken).ConfigureAwait(false);
         }
 
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);

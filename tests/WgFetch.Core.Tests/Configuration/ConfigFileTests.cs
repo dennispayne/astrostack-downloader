@@ -395,6 +395,25 @@ public sealed class ConfigRedactionTests
             Assert.True(ConfigSettings.TrySet(new WgFetchConfig(), name, "secret", out var updated, out var error), error);
             Assert.Equal(SecretRedactor.Placeholder, ConfigSettings.GetRedactedValue(updated, name, out _));
         }
+
+        [Theory]
+        [InlineData("aiEndpoint")]
+        [InlineData("searchEndpoint")]
+        public void Endpoint_accessors_redact_embedded_credentials(string name)
+        {
+            var config = new WgFetchConfig
+            {
+                AiEndpoint = "https://user:" + "password" + "@ai.example/v1?api_key=secret",
+                SearchEndpoint = "https://user:" + "password" + "@search.example/v1?api_key=secret",
+            };
+
+            var value = ConfigSettings.GetRedactedValue(config, name, out var error);
+
+            Assert.Null(error);
+            Assert.DoesNotContain("password", value, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret", value, StringComparison.Ordinal);
+            Assert.Contains(SecretRedactor.Placeholder, value, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
