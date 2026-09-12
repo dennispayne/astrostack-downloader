@@ -241,7 +241,7 @@ public static class ConfigFile
             catch (JsonException exception)
             {
                 throw new InvalidDataException(
-                    "existing config file is malformed; fix or remove it before changing settings.",
+                    $"Existing config file '{path}' is malformed; fix or remove it before changing settings.",
                     exception);
             }
         }

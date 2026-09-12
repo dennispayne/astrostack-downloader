@@ -189,6 +189,27 @@ public sealed class CommandRunnerInteractiveConfigTests
     }
 
     [Fact]
+    public async Task Interactive_models_root_edit_reports_malformed_config_and_returns_to_the_menu()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        const string malformed = "{ this is not json";
+        await File.WriteAllTextAsync(configPath, malformed, CancellationToken.None);
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, 1); // Change models root follows install-all when no models are configured.
+        console.Input.PushTextWithEnter(temp.Combine("models"));
+        SelectByIndex(console, ExitIndex);
+        var (runner, _, _) = CreateInteractiveRunner(console, models: []);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("malformed", console.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(malformed, await File.ReadAllTextAsync(configPath, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Interactive_install_failure_is_written_to_the_redacting_logger()
     {
         using var temp = new TempDirectory();

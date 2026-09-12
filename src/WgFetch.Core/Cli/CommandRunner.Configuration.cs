@@ -253,7 +253,7 @@ public sealed partial class CommandRunner
             catch (InvalidDataException exception)
             {
                 console.MarkupLine($"[red]{Markup.Escape(exception.Message)}[/]");
-                return ExitCode.UsageError;
+                return ExitCode.Success;
             }
             if (persisted is null)
             {

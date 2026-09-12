@@ -221,6 +221,11 @@ public sealed partial class CommandRunner
     internal static bool ResolveConfigPlain(bool plainFlag, bool? configPlain) =>
         plainFlag || configPlain == true;
 
+    /// <summary>
+    /// Collects every candidate credential value visible to the config command for redaction only.
+    /// This deliberately aggregates CLI, environment and persisted values instead of resolving
+    /// precedence, so stale or overridden secrets cannot leak from displayed persisted endpoints.
+    /// </summary>
     private IReadOnlyList<string> ResolveConfigSecrets(ParsedCommandLine parsed, WgFetchConfig config)
     {
         var secrets = new[] {
