@@ -3,6 +3,7 @@ using WgFetch.Core.Cli;
 using WgFetch.Core.Inference;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
+using WgFetch.Core.Prereqs;
 using WgFetch.Core.Progress;
 using WgFetch.Core.Targets;
 using WgFetch.Core.Tests.Support;
@@ -202,8 +203,8 @@ public sealed class CommandRunnerTests
     public async Task NoCommand_ManifestPresentButAssetsMissing_ShowsNotInstalled()
     {
         // A bare install-manifest.json with none of the pinned model files on disk must never be
-        // reported as "installed": readiness comes from PrereqInstaller.StatusAsync verifying every
-        // pinned asset, not from the manifest's mere existence (a partial or wiped install is not ready).
+        // reported as present: landing readiness comes from the hashing-free asset presence probe, not
+        // from the manifest's mere existence (a partial or wiped install is not ready).
         using var temp = new TempDirectory();
         await TargetsFile.SaveAsync(
             new TargetsDocument
@@ -230,6 +231,44 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("not installed", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_PresentEmbeddingAssets_AreReportedAsUnverified()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var modelsRoot = temp.Combine("models");
+        foreach (var asset in PinnedModels.Embedding.Assets)
+        {
+            var path = Path.Combine(PrereqInstaller.ModelDirectory(modelsRoot, PinnedModels.Embedding), asset.RelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await using var file = File.Create(path);
+            file.SetLength(asset.SizeBytes!.Value);
+        }
+
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("present (unverified)", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("installed", stdout.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
