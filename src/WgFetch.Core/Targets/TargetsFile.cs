@@ -306,7 +306,7 @@ public static class TargetsFile
         string.IsNullOrWhiteSpace(value)
             ? throw new TargetsFileValidationException(
                 MissingNameReasonCode,
-                new FormatException("A targets.yaml entry is missing the required 'name' field."))
+                new FormatException("A targets.yaml entry is missing or has a blank required 'name' field."))
             : value;
 
     private static string? ScalarOrNull(YamlNode node)
