@@ -119,11 +119,9 @@ public sealed record WgFetchConfig
             return Logging.SecretRedactor.Redact(value, secrets);
         }
 
-        // Endpoints are URLs that may carry a configured credential as a query value or userinfo,
-        // percent- or form-encoded (+ for space) differently than Uri.EscapeDataString would produce
-        // above; decode and compare query values before falling back to the generic string redaction.
-        // The URL-aware pass is followed by the generic redaction so token-shaped values that are not
-        // configured secrets (e.g. an "sk-" key in the path) are redacted too.
+        // Endpoints are URLs that may carry a configured credential as a query value or userinfo;
+        // every absolute endpoint URI, including file:, gets URL-aware parameter redaction before the
+        // generic pass catches configured secrets and token-shaped values in arbitrary text.
         string? RedactEndpoint(string? value) =>
             value is not null && Uri.TryCreate(value, UriKind.Absolute, out _)
                 ? Redact(Logging.SecretRedactor.RedactUrl(value, secrets))

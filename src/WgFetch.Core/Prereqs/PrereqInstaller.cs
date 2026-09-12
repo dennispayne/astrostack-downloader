@@ -243,8 +243,13 @@ public sealed class PrereqInstaller
                 throw new InvalidOperationException($"Refusing to use models root '{normalizedRoot}': it is a symbolic link or reparse point.");
             }
         }
-        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        catch (FileNotFoundException)
         {
+            // A not-yet-existing root cannot itself be a reparse point; child paths are checked later.
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // A not-yet-existing root cannot itself be a reparse point; child paths are checked later.
         }
     }
 
