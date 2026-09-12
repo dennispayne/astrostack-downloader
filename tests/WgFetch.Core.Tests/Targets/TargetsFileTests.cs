@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using WgFetch.Core.Targets;
 using WgFetch.Core.Tests.Support;
@@ -302,26 +303,20 @@ public class TargetsFileTests
     }
 
     [Fact]
-    public async Task LoadAsync_FifoPath_FailsClosedWithoutBlocking()
+    public async Task LoadAsync_NonRegularPath_FailsClosedWithoutBlocking()
     {
         using var temp = new TempDirectory();
         var path = Path.Combine(temp.Path, "targets.yaml");
-        var createdFifo = false;
-
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        var usingFifo = OperatingSystem.IsLinux() && await TryCreateFifoAsync(path);
+        if (!usingFifo)
         {
-            createdFifo = await TryCreateFifoAsync(path);
-        }
-
-        if (!createdFifo)
-        {
-            // Portable fallback that still exercises "non-regular file" fail-closed behaviour.
+            // Cross-platform fallback still validates fail-closed behavior for non-regular paths.
             Directory.CreateDirectory(path);
         }
 
         var loadTask = TargetsFile.LoadAsync(path);
         var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(2)));
-        if (!ReferenceEquals(completed, loadTask) && createdFifo)
+        if (!ReferenceEquals(completed, loadTask) && usingFifo)
         {
             // Ensure a blocked reader cannot outlive the test if this ever regresses.
             await using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
@@ -330,7 +325,14 @@ public class TargetsFileTests
         Assert.Same(loadTask, completed);
 
         var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
-        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+        if (usingFifo)
+        {
+            Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -428,13 +430,21 @@ public class TargetsFileTests
 
     private static async Task<bool> TryCreateFifoAsync(string path)
     {
-        using var mkfifo = Process.Start(new ProcessStartInfo
+        Process? mkfifo;
+        try
         {
-            FileName = "mkfifo",
-            ArgumentList = { path },
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-        });
+            mkfifo = Process.Start(new ProcessStartInfo
+            {
+                FileName = "mkfifo",
+                ArgumentList = { path },
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+            });
+        }
+        catch (Win32Exception)
+        {
+            return false;
+        }
 
         if (mkfifo is null)
         {

@@ -49,15 +49,19 @@ public static class TargetsFile
 
         if (OperatingSystem.IsLinux())
         {
+            bool skipLinuxProbe = false;
             try
             {
-                using var probe = File.OpenHandle(
-                    path,
-                    FileMode.Open,
-                    FileAccess.ReadWrite,
-                    FileShare.ReadWrite | FileShare.Delete);
-                // RandomAccess.GetLength throws NotSupportedException on FIFOs/non-seekable handles.
-                _ = RandomAccess.GetLength(probe);
+                var attributes = File.GetAttributes(path);
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    throw new TargetsFileException(
+                        $"{path} is unreadable or malformed: path is not a regular file.",
+                        new IOException("path is not a regular file."))
+                    { FilePath = path };
+                }
+
+                skipLinuxProbe = (attributes & FileAttributes.ReadOnly) != 0;
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
@@ -65,15 +69,37 @@ public static class TargetsFile
                 // have been acquired yet.
                 return (new TargetsDocument(), false);
             }
-            catch (NotSupportedException ex)
+            catch (TargetsFileException)
             {
-                throw new TargetsFileException(
-                    $"{path} is unreadable or malformed: path is not a regular file.",
-                    ex) { FilePath = path };
+                throw;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
+            }
+
+            if (!skipLinuxProbe)
+            {
+                try
+                {
+                    using var probe = File.OpenHandle(
+                        path,
+                        FileMode.Open,
+                        FileAccess.ReadWrite,
+                        FileShare.ReadWrite | FileShare.Delete);
+                    // RandomAccess.GetLength throws NotSupportedException on FIFOs/non-seekable handles.
+                    _ = RandomAccess.GetLength(probe);
+                }
+                catch (NotSupportedException ex)
+                {
+                    throw new TargetsFileException(
+                        $"{path} is unreadable or malformed: path is not a regular file.",
+                        ex) { FilePath = path };
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
+                }
             }
         }
 
