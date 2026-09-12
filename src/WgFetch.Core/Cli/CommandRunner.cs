@@ -241,7 +241,7 @@ public sealed partial class CommandRunner
                 Out = new AnsiConsoleOutput(_stdout),
             });
             console.Write(SplashScreen.CreateInteractiveHeader());
-            console.WriteLine();
+            console.WriteLine(string.Empty);
         }
         else
         {

@@ -242,8 +242,12 @@ internal static class RegularFileText
         private const uint OpenExisting = 3;
         private const uint FileFlagOverlapped = 0x40000000;
         private const uint FileTypeDisk = 1;
+        private const uint FileAttributeDirectory = 0x00000010;
+        private const uint FileAttributeDevice = 0x00000040;
+        private const uint FileAttributeReparsePoint = 0x00000400;
         private const int Win32ErrorFileNotFound = 2;
         private const int Win32ErrorPathNotFound = 3;
+        private const int FileAttributeTagInfo = 9;
 
         internal static async Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)
         {
@@ -259,7 +263,13 @@ internal static class RegularFileText
                 };
             }
 
-            if (GetFileType(handle) != FileTypeDisk)
+            if (GetFileType(handle) != FileTypeDisk ||
+                !GetFileInformationByHandleEx(
+                    handle,
+                    FileAttributeTagInfo,
+                    out var attributes,
+                    (uint)Marshal.SizeOf<FileAttributeTagInformation>()) ||
+                (attributes.FileAttributes & (FileAttributeDirectory | FileAttributeDevice | FileAttributeReparsePoint)) != 0)
             {
                 throw new IOException("path is not a regular file.");
             }
@@ -280,5 +290,20 @@ internal static class RegularFileText
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern uint GetFileType(SafeFileHandle handle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetFileInformationByHandleEx(
+            SafeFileHandle handle,
+            int fileInformationClass,
+            out FileAttributeTagInformation fileInformation,
+            uint bufferSize);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileAttributeTagInformation
+        {
+            internal uint FileAttributes;
+            internal uint ReparseTag;
+        }
     }
 }

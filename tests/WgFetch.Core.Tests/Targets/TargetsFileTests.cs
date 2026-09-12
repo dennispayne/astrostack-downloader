@@ -126,6 +126,26 @@ public class TargetsFileTests
         Assert.Contains("mapping keys must be scalar", ex.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("just-a-scalar")]
+    [InlineData("- name: nina")]
+    public void Parse_NonMappingRoot_FailsClosedWithFormatException(string yaml)
+    {
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+
+        Assert.Contains("root must be a mapping", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("targets: nina")]
+    [InlineData("targets: { name: nina }")]
+    public void Parse_NonSequenceTargets_FailsClosedWithFormatException(string yaml)
+    {
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+
+        Assert.Contains("'targets' must be a sequence", ex.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Parse_OversizedVersionScalar_FailsClosedWithFormatException()
     {
@@ -403,6 +423,19 @@ public class TargetsFileTests
         }
 
         var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync("NUL"));
+
+        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoadAsync_WindowsDevicePath_FailsClosed()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(@"\\.\NUL"));
 
         Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
     }

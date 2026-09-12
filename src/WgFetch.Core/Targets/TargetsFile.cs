@@ -101,9 +101,14 @@ public static class TargetsFile
 
         var doc = new TargetsDocument { Targets = new List<TargetEntry>() };
 
-        if (stream.Documents.Count == 0 || stream.Documents[0].RootNode is not YamlMappingNode root)
+        if (stream.Documents.Count == 0)
         {
             return doc;
+        }
+
+        if (stream.Documents[0].RootNode is not YamlMappingNode root)
+        {
+            throw new FormatException("targets.yaml document root must be a mapping.");
         }
 
         var extras = new Dictionary<string, YamlNode>(StringComparer.Ordinal);
@@ -121,14 +126,21 @@ public static class TargetsFile
 
                 doc.Version = ParseVersion(versionScalar.Value);
             }
-            else if (key == TargetsKey && child.Value is YamlSequenceNode targetsSequence)
+            else if (key == TargetsKey)
             {
+                if (child.Value is not YamlSequenceNode targetsSequence)
+                {
+                    throw new FormatException("targets.yaml 'targets' must be a sequence.");
+                }
+
                 foreach (YamlNode item in targetsSequence.Children)
                 {
-                    if (item is YamlMappingNode entryMapping)
+                    if (item is not YamlMappingNode entryMapping)
                     {
-                        doc.Targets.Add(ParseEntry(entryMapping));
+                        throw new FormatException("targets.yaml entries must be mappings.");
                     }
+
+                    doc.Targets.Add(ParseEntry(entryMapping));
                 }
             }
             else
