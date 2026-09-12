@@ -52,6 +52,17 @@ public static partial class SecretRedactor
             .Where(secret => !string.IsNullOrWhiteSpace(secret))
             .ToArray();
 
+        // URL-aware redaction must run before the literal known-secret replace below. Otherwise a
+        // short configured secret that happens to equal a sensitive query-parameter name (for
+        // example a secret literally equal to "token") gets replaced first, mangling "?token=..."
+        // into "?[REDACTED]=..." so the URL parser no longer recognizes the parameter as sensitive
+        // and the actual secret value in it is never redacted (docs/REQUIREMENTS.md, "Privacy").
+        result = RedactUrlsInText(result, secrets);
+
+        result = GitHubTokenPattern().Replace(result, Placeholder);
+        result = OpenAiKeyPattern().Replace(result, Placeholder);
+        result = BearerPattern().Replace(result, $"$1 {Placeholder}");
+
         if (secrets.Length > 0)
         {
             // No minimum length here: a configured credential must never appear in output even when
@@ -60,10 +71,6 @@ public static partial class SecretRedactor
             result = RedactKnownSecrets(result, secrets);
         }
 
-        result = GitHubTokenPattern().Replace(result, Placeholder);
-        result = OpenAiKeyPattern().Replace(result, Placeholder);
-        result = BearerPattern().Replace(result, $"$1 {Placeholder}");
-        result = RedactUrlsInText(result, secrets);
         return result;
     }
 
