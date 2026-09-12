@@ -23,10 +23,15 @@ public static partial class SecretRedactor
     };
 
     private static readonly string[] SensitiveQueryFragments =
-        ["credential", "signature", "token", "sig", "hmac"];
+        ["credential", "signature", "token", "hmac"];
 
     private static readonly string[] SensitiveHeaderFragments =
         ["api-key", "apikey", "token", "secret"];
+
+    private static readonly HashSet<string> SensitiveHeaderNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Authorization", "Proxy-Authorization", "Cookie", "Cookie2", "Ocp-Apim-Subscription-Key",
+    };
 
     [GeneratedRegex(@"gh[pousr]_[A-Za-z0-9]{16,}", RegexOptions.CultureInvariant)]
     private static partial Regex GitHubTokenPattern();
@@ -43,12 +48,12 @@ public static partial class SecretRedactor
     /// <summary>True when a configuration or provenance field name holds a secret.</summary>
     public static bool IsSensitiveFieldName(string name) => SensitiveFieldNames.Contains(name);
 
-    /// <summary>True when an HTTP header can carry credentials and must not cross authorities.</summary>
+    /// <summary>
+    /// True when an HTTP header can carry credentials and must not cross authorities. Matching is
+    /// case-insensitive and covers exact names, <c>-key</c> suffixes, and credential fragments.
+    /// </summary>
     public static bool IsSensitiveHeaderName(string name) =>
-        name.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Cookie", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Cookie2", StringComparison.OrdinalIgnoreCase) ||
+        SensitiveHeaderNames.Contains(name) ||
         name.EndsWith("-key", StringComparison.OrdinalIgnoreCase) ||
         SensitiveHeaderFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
@@ -145,10 +150,7 @@ public static partial class SecretRedactor
         return result;
     }
 
-    /// <summary>
-    /// Recognizes credential-bearing parameters used by signed CDN URLs, including AWS
-    /// <c>X-Amz-*</c> and Google <c>X-Goog-*</c> signing schemes.
-    /// </summary>
+    /// <summary>Recognizes credential-bearing AWS <c>X-Amz-*</c> and Google <c>X-Goog-*</c> signed CDN parameters.</summary>
     private static bool IsSensitiveQueryKey(string name) =>
         SensitiveQueryKeys.Contains(name) ||
         SensitiveQueryFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));

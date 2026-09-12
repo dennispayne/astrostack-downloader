@@ -87,7 +87,7 @@ public sealed class VerificationGateTests
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["Accept"] = "application/octet-stream",
-            ["Authorization"] = "******",
+            ["Authorization"] = "authorization-sentinel",
             ["Cookie"] = "session=credential-value",
             ["X-Api-Key"] = "credential-value",
             ["Ocp-Apim-Subscription-Key"] = "credential-value",
