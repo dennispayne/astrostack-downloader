@@ -21,6 +21,9 @@ public static class TargetsFile
     private const string InvalidLastAttemptReasonCode = "invalid-last-attempt";
     private const string InvalidKeyReasonCode = "invalid-key";
     private const string MissingNameReasonCode = "missing-name";
+    private const string InvalidDocumentRootReasonCode = "invalid-document-root";
+    private const string InvalidTargetsReasonCode = "invalid-targets";
+    private const string InvalidTargetEntryReasonCode = "invalid-target-entry";
 
     private static readonly string[] KnownEntryKeysInOrder =
     {
@@ -71,9 +74,16 @@ public static class TargetsFile
         {
             var doc = new TargetsDocument { Targets = new List<TargetEntry>() };
 
-            if (stream.Documents.Count == 0 || stream.Documents[0].RootNode is not YamlMappingNode root)
+            if (stream.Documents.Count == 0)
             {
                 return doc;
+            }
+
+            if (stream.Documents[0].RootNode is not YamlMappingNode root)
+            {
+                throw new TargetsFileValidationException(
+                    InvalidDocumentRootReasonCode,
+                    new FormatException("targets.yaml root must be a mapping."));
             }
 
             var extras = new Dictionary<string, YamlNode>(StringComparer.Ordinal);
@@ -82,18 +92,36 @@ public static class TargetsFile
             {
                 string key = GetKey(child.Key);
 
-                if (key == VersionKey && child.Value is YamlScalarNode versionScalar)
+                if (key == VersionKey)
                 {
+                    if (child.Value is not YamlScalarNode versionScalar)
+                    {
+                        throw new TargetsFileValidationException(
+                            InvalidVersionReasonCode,
+                            new FormatException("targets.yaml 'version' must be a scalar."));
+                    }
+
                     doc.Version = ParseVersion(versionScalar.Value);
                 }
-                else if (key == TargetsKey && child.Value is YamlSequenceNode targetsSequence)
+                else if (key == TargetsKey)
                 {
+                    if (child.Value is not YamlSequenceNode targetsSequence)
+                    {
+                        throw new TargetsFileValidationException(
+                            InvalidTargetsReasonCode,
+                            new FormatException("targets.yaml 'targets' must be a sequence."));
+                    }
+
                     foreach (YamlNode item in targetsSequence.Children)
                     {
-                        if (item is YamlMappingNode entryMapping)
+                        if (item is not YamlMappingNode entryMapping)
                         {
-                            doc.Targets.Add(ParseEntry(entryMapping));
+                            throw new TargetsFileValidationException(
+                                InvalidTargetEntryReasonCode,
+                                new FormatException("Each targets.yaml entry must be a mapping."));
                         }
+
+                        doc.Targets.Add(ParseEntry(entryMapping));
                     }
                 }
                 else
@@ -161,6 +189,13 @@ public static class TargetsFile
                     componentId = ScalarOrNull(value);
                     break;
                 case "state":
+                    if (value is not YamlScalarNode)
+                    {
+                        throw new TargetsFileValidationException(
+                            InvalidStateReasonCode,
+                            new FormatException("targets.yaml entry 'state' must be a scalar."));
+                    }
+
                     string? stateText = ScalarOrNull(value);
                     state = stateText is null ? TargetState.Listed : ParseState(stateText);
                     break;

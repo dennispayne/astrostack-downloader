@@ -1,3 +1,4 @@
+using System.Text;
 using YamlDotNet.Core;
 
 namespace WgFetch.Core.Targets;
@@ -31,7 +32,7 @@ public sealed class TargetsFileException : Exception
 
     private static string BuildMessage(string? path, Exception innerException, string? reasonCode = null)
     {
-        string prefix = $"failed to parse targets file{(path is null ? string.Empty : $" '{path}'")}: ";
+        string prefix = $"failed to parse targets file{(path is null ? string.Empty : $" '{EscapeForSingleLineDisplay(path)}'")}: ";
         return innerException is YamlException yamlException
             ? $"{prefix}invalid YAML at line {yamlException.Start.Line + 1}, column {yamlException.Start.Column + 1}{RenderReasonCodeSuffix(reasonCode ?? InvalidDocumentReasonCode)}."
             : $"{prefix}invalid targets document (reason: {reasonCode ?? InvalidDocumentReasonCode}).";
@@ -39,4 +40,34 @@ public sealed class TargetsFileException : Exception
 
     private static string RenderReasonCodeSuffix(string? reasonCode) =>
         reasonCode is null ? string.Empty : $" (reason: {reasonCode})";
+
+    /// <summary>
+    /// Escapes control characters (notably CR/LF) in <paramref name="value"/> so an attacker- or
+    /// mistake-controlled path cannot break the single-line stderr/JSON error contract.
+    /// </summary>
+    private static string EscapeForSingleLineDisplay(string value)
+    {
+        StringBuilder? builder = null;
+
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (!char.IsControl(c))
+            {
+                builder?.Append(c);
+                continue;
+            }
+
+            builder ??= new StringBuilder(value.Length + 8).Append(value, 0, i);
+            builder.Append(c switch
+            {
+                '\r' => "\\r",
+                '\n' => "\\n",
+                '\t' => "\\t",
+                _ => $"\\x{(int)c:x2}",
+            });
+        }
+
+        return builder?.ToString() ?? value;
+    }
 }

@@ -233,8 +233,13 @@ public class TargetsFileTests
     [InlineData("version: nope", "invalid-version")]
     [InlineData("version: 999999999999999999999", "invalid-version")]
     [InlineData("targets:\n  - name: nina\n    state: typo", "invalid-state")]
+    [InlineData("targets:\n  - name: nina\n    state: []", "invalid-state")]
     [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp", "invalid-last-attempt")]
     [InlineData("? [invalid]\n: value", "invalid-key")]
+    [InlineData("version: {}", "invalid-version")]
+    [InlineData("targets: {}", "invalid-targets")]
+    [InlineData("targets: [nina]", "invalid-target-entry")]
+    [InlineData("[]", "invalid-document-root")]
     public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml, string reasonCode)
     {
         string path = Path.Combine(AppContext.BaseDirectory, $"invalid-{Guid.NewGuid():N}.yaml");
@@ -249,6 +254,27 @@ public class TargetsFileTests
             Assert.Contains($"reason: {reasonCode}", exception.Message, StringComparison.Ordinal);
             Assert.Equal(reasonCode, exception.ReasonCode);
             Assert.DoesNotContain('\n', exception.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_WithPathContainingControlCharacters_EscapesThemInMessage()
+    {
+        string fileName = "malformed-with-\r\ncontrol-chars-" + Guid.NewGuid().ToString("N") + ".yaml";
+        string path = Path.Combine(AppContext.BaseDirectory, fileName);
+        await File.WriteAllTextAsync(path, "targets: [this is: not valid: yaml:::");
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+            Assert.DoesNotContain('\n', exception.Message);
+            Assert.DoesNotContain('\r', exception.Message);
+            Assert.Contains("\\r\\n", exception.Message, StringComparison.Ordinal);
         }
         finally
         {
