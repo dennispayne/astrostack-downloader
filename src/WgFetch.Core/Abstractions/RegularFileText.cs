@@ -23,10 +23,7 @@ internal static class RegularFileText
     /// </summary>
     internal static Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)
     {
-        if (path.Contains('\0'))
-        {
-            return Task.FromException<string>(new IOException("path contains an embedded NUL character."));
-        }
+        SafeUserFile.ThrowIfPathContainsNul(path);
 
         return OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
             ? UnixReader.ReadAllTextAsync(path, maxBytes, cancellationToken)

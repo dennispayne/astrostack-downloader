@@ -132,21 +132,14 @@ public static class ConfigFile
 
     public static async Task SaveAsync(WgFetchConfig config, string path, CancellationToken cancellationToken)
     {
-        if (path.Contains('\0'))
-        {
-            throw new IOException("path contains an embedded NUL character.");
-        }
+        SafeUserFile.ThrowIfPathContainsNul(path);
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         var temp = path + ".tmp";
-        using var content = new MemoryStream();
+        using var content = SafeUserFile.CreateBoundedBuffer(MaxConfigBytes, "config");
         await JsonSerializer
             .SerializeAsync(content, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
             .ConfigureAwait(false);
-        if (content.Length > MaxConfigBytes)
-        {
-            throw new IOException($"config is larger than the {MaxConfigBytes} byte limit.");
-        }
 
         content.Position = 0;
         await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))

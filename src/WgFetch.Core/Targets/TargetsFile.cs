@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using WgFetch.Core.Abstractions;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
@@ -308,16 +307,10 @@ public static class TargetsFile
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (path.Contains('\0'))
-        {
-            throw new IOException("path contains an embedded NUL character.");
-        }
+        SafeUserFile.ThrowIfPathContainsNul(path);
 
         string text = Render(document);
-        if (Encoding.UTF8.GetByteCount(text) > MaxFileBytes)
-        {
-            throw new IOException($"targets.yaml is larger than the {MaxFileBytes} byte limit.");
-        }
+        SafeUserFile.GetUtf8ByteCountWithinLimit(text, MaxFileBytes, "targets.yaml");
 
         string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(directory))
