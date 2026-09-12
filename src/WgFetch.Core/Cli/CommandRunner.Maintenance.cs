@@ -33,7 +33,7 @@ public sealed partial class CommandRunner
             return ExitCode.UsageError;
         }
 
-        if (parsed.SubCommand is null || parsed.Has("--interactive"))
+        if (parsed.SubCommand is null)
         {
             return await InteractiveConfigAsync(config, parsed.Value("--config"), terminal, cancellationToken).ConfigureAwait(false);
         }
