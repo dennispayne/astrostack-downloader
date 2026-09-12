@@ -210,7 +210,7 @@ public class TargetsFileTests
 
             Assert.Equal(path, exception.Path);
             Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
-            Assert.Contains("line 1, column", exception.Message, StringComparison.Ordinal);
+            Assert.Matches(@"line \d+, column \d+", exception.Message);
             Assert.DoesNotContain('\n', exception.Message);
         }
         finally
@@ -230,11 +230,12 @@ public class TargetsFileTests
     }
 
     [Theory]
-    [InlineData("version: nope")]
-    [InlineData("targets:\n  - name: nina\n    state: typo")]
-    [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp")]
-    [InlineData("? [invalid]\n: value")]
-    public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml)
+    [InlineData("version: nope", "invalid-version")]
+    [InlineData("version: 999999999999999999999", "invalid-version")]
+    [InlineData("targets:\n  - name: nina\n    state: typo", "invalid-state")]
+    [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp", "invalid-last-attempt")]
+    [InlineData("? [invalid]\n: value", "invalid-key")]
+    public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml, string reasonCode)
     {
         string path = Path.Combine(AppContext.BaseDirectory, $"invalid-{Guid.NewGuid():N}.yaml");
         await File.WriteAllTextAsync(path, yaml);
@@ -245,8 +246,9 @@ public class TargetsFileTests
 
             Assert.Equal(path, exception.Path);
             Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
-            Assert.Contains("invalid targets document", exception.Message, StringComparison.Ordinal);
-            Assert.IsType<FormatException>(exception.InnerException);
+            Assert.Contains($"reason: {reasonCode}", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(reasonCode, exception.ReasonCode);
+            Assert.DoesNotContain('\n', exception.Message);
         }
         finally
         {

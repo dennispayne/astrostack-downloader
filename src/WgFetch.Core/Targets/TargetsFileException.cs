@@ -12,14 +12,25 @@ public sealed class TargetsFileException : Exception
         Path = path;
     }
 
+    /// <summary>Initializes a schema-validation error with a stable sanitized reason code.</summary>
+    public TargetsFileException(string? path, Exception innerException, string reasonCode)
+        : base(BuildMessage(path, innerException, reasonCode), innerException)
+    {
+        Path = path;
+        ReasonCode = reasonCode;
+    }
+
     /// <summary>Gets the source path, when the YAML was loaded from a file.</summary>
     public string? Path { get; }
 
-    private static string BuildMessage(string? path, Exception innerException)
+    /// <summary>Gets a stable sanitized reason code for schema-validation failures.</summary>
+    public string? ReasonCode { get; }
+
+    private static string BuildMessage(string? path, Exception innerException, string? reasonCode = null)
     {
         string prefix = $"failed to parse targets file{(path is null ? string.Empty : $" '{path}'")}: ";
         return innerException is YamlException yamlException
-            ? $"{prefix}invalid YAML at line {yamlException.Start.Line}, column {yamlException.Start.Column}."
-            : $"{prefix}invalid targets document.";
+            ? $"{prefix}invalid YAML at line {yamlException.Start.Line + 1}, column {yamlException.Start.Column + 1}."
+            : $"{prefix}invalid targets document (reason: {reasonCode ?? "invalid-document"}).";
     }
 }

@@ -73,7 +73,7 @@ public static class TargetsFile
 
                 if (key == VersionKey && child.Value is YamlScalarNode versionScalar)
                 {
-                    doc.Version = int.Parse(versionScalar.Value ?? "1", CultureInfo.InvariantCulture);
+                    doc.Version = ParseVersion(versionScalar.Value);
                 }
                 else if (key == TargetsKey && child.Value is YamlSequenceNode targetsSequence)
                 {
@@ -94,9 +94,25 @@ public static class TargetsFile
             doc.ExtraFields = extras;
             return doc;
         }
+        catch (TargetsFileValidationException ex)
+        {
+            throw new TargetsFileException(path, ex.InnerException ?? ex, ex.ReasonCode);
+        }
+    }
+
+    private static int ParseVersion(string? value)
+    {
+        try
+        {
+            return int.Parse(value ?? "1", CultureInfo.InvariantCulture);
+        }
         catch (FormatException ex)
         {
-            throw new TargetsFileException(path, ex);
+            throw new TargetsFileValidationException("invalid-version", ex);
+        }
+        catch (OverflowException ex)
+        {
+            throw new TargetsFileValidationException("invalid-version", ex);
         }
     }
 
@@ -135,7 +151,7 @@ public static class TargetsFile
                     break;
                 case "state":
                     string? stateText = ScalarOrNull(value);
-                    state = stateText is null ? TargetState.Listed : TargetStateExtensions.ParseYamlState(stateText);
+                    state = stateText is null ? TargetState.Listed : ParseState(stateText);
                     break;
                 case "acquiredVersion":
                     acquiredVersion = ScalarOrNull(value);
@@ -173,10 +189,7 @@ public static class TargetsFile
                     string? lastAttemptText = ScalarOrNull(value);
                     lastAttempt = lastAttemptText is null
                         ? null
-                        : DateTimeOffset.Parse(
-                            lastAttemptText,
-                            CultureInfo.InvariantCulture,
-                            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+                        : ParseTimestamp(lastAttemptText);
                     break;
                 case "lastError":
                     lastError = ScalarOrNull(value);
@@ -189,7 +202,9 @@ public static class TargetsFile
 
         return new TargetEntry
         {
-            Name = name ?? throw new FormatException("A targets.yaml entry is missing the required 'name' field."),
+            Name = name ?? throw new TargetsFileValidationException(
+                "missing-name",
+                new FormatException("A targets.yaml entry is missing the required 'name' field.")),
             Id = id,
             ComponentId = componentId,
             State = state,
@@ -204,6 +219,33 @@ public static class TargetsFile
             LastError = lastError,
             ExtraFields = extras,
         };
+    }
+
+    private static TargetState ParseState(string value)
+    {
+        try
+        {
+            return TargetStateExtensions.ParseYamlState(value);
+        }
+        catch (FormatException ex)
+        {
+            throw new TargetsFileValidationException("invalid-state", ex);
+        }
+    }
+
+    private static DateTimeOffset ParseTimestamp(string value)
+    {
+        try
+        {
+            return DateTimeOffset.Parse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        }
+        catch (FormatException ex)
+        {
+            throw new TargetsFileValidationException("invalid-last-attempt", ex);
+        }
     }
 
     private static string? ScalarOrNull(YamlNode node)
@@ -226,7 +268,15 @@ public static class TargetsFile
     {
         return node is YamlScalarNode scalar
             ? scalar.Value ?? string.Empty
-            : throw new FormatException("targets.yaml keys must be scalar values.");
+            : throw new TargetsFileValidationException(
+                "invalid-key",
+                new FormatException("targets.yaml keys must be scalar values."));
+    }
+
+    private sealed class TargetsFileValidationException(string reasonCode, Exception innerException)
+        : FormatException("Invalid targets document.", innerException)
+    {
+        public string ReasonCode { get; } = reasonCode;
     }
 
     /// <summary>

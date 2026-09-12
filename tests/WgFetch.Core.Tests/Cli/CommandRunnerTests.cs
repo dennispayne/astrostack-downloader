@@ -270,11 +270,13 @@ public sealed class CommandRunnerTests
     }
 
     [Theory]
-    [InlineData(false, "targets: [this is: not valid: yaml:::")]
-    [InlineData(true, "targets: [this is: not valid: yaml:::")]
-    [InlineData(false, "version: nope")]
-    [InlineData(true, "version: nope")]
-    public async Task MalformedTargetsYaml_IsCleanUsageError(bool json, string yaml)
+    [InlineData(false, "targets: [this is: not valid: yaml:::", null)]
+    [InlineData(true, "targets: [this is: not valid: yaml:::", null)]
+    [InlineData(false, "version: nope", "invalid-version")]
+    [InlineData(true, "version: nope", "invalid-version")]
+    [InlineData(false, "version: 999999999999999999999", "invalid-version")]
+    [InlineData(true, "version: 999999999999999999999", "invalid-version")]
+    public async Task MalformedTargetsYaml_IsCleanUsageError(bool json, string yaml, string? reasonCode)
     {
         using var temp = new TempDirectory();
         await File.WriteAllTextAsync(
@@ -300,7 +302,16 @@ public sealed class CommandRunnerTests
             using var document = JsonDocument.Parse(Assert.Single(
                 stdout.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)));
             Assert.Equal("error", document.RootElement.GetProperty("event").GetString());
+            Assert.Equal("targets", document.RootElement.GetProperty("stage").GetString());
+            Assert.Equal("failed", document.RootElement.GetProperty("status").GetString());
             Assert.Equal(1, document.RootElement.GetProperty("exitCode").GetInt32());
+
+            string message = document.RootElement.GetProperty("message").GetString()!;
+            Assert.Contains("failed to parse targets file", message, StringComparison.Ordinal);
+            if (reasonCode is not null)
+            {
+                Assert.Contains($"reason: {reasonCode}", message, StringComparison.Ordinal);
+            }
         }
         else
         {
