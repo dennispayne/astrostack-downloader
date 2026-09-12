@@ -34,7 +34,7 @@ public sealed class TargetsFileException : Exception
     {
         string prefix = $"failed to parse targets file{(path is null ? string.Empty : $" '{EscapeForSingleLineDisplay(path)}'")}: ";
         return innerException is YamlException yamlException
-            ? $"{prefix}invalid YAML at line {yamlException.Start.Line + 1}, column {yamlException.Start.Column + 1}{RenderReasonCodeSuffix(reasonCode ?? InvalidDocumentReasonCode)}."
+            ? $"{prefix}invalid YAML at line {yamlException.Start.Line}, column {yamlException.Start.Column}{RenderReasonCodeSuffix(reasonCode ?? InvalidDocumentReasonCode)}."
             : $"{prefix}invalid targets document (reason: {reasonCode ?? InvalidDocumentReasonCode}).";
     }
 

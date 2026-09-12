@@ -22,8 +22,20 @@ public static class TargetsFile
     private const string InvalidKeyReasonCode = "invalid-key";
     private const string MissingNameReasonCode = "missing-name";
     private const string InvalidDocumentRootReasonCode = "invalid-document-root";
+    private const string InvalidDocumentCountReasonCode = "invalid-document-count";
     private const string InvalidTargetsReasonCode = "invalid-targets";
     private const string InvalidTargetEntryReasonCode = "invalid-target-entry";
+    private const string InvalidNameReasonCode = "invalid-name";
+    private const string InvalidIdReasonCode = "invalid-id";
+    private const string InvalidComponentIdReasonCode = "invalid-component-id";
+    private const string InvalidAcquiredVersionReasonCode = "invalid-acquired-version";
+    private const string InvalidAvailableVersionReasonCode = "invalid-available-version";
+    private const string InvalidArchReasonCode = "invalid-arch";
+    private const string InvalidScopeReasonCode = "invalid-scope";
+    private const string InvalidPinReasonCode = "invalid-pin";
+    private const string InvalidAllowlistReasonCode = "invalid-allowlist";
+    private const string InvalidRecipeReasonCode = "invalid-recipe";
+    private const string InvalidLastErrorReasonCode = "invalid-last-error";
 
     private static readonly string[] KnownEntryKeysInOrder =
     {
@@ -60,12 +72,8 @@ public static class TargetsFile
             stream.Load(reader);
         }
         // YamlDotNet's representation-model loader can surface malformed mapping shapes (for example,
-        // duplicate keys) as ArgumentException rather than YamlException. Restrict the broader catch
-        // to ArgumentException instances originating from YamlDotNet frames.
-        catch (Exception ex) when (
-            ex is YamlException ||
-            ex is ArgumentException argumentException &&
-            IsYamlRepresentationModelArgumentException(argumentException))
+        // duplicate keys) as ArgumentException rather than YamlException.
+        catch (Exception ex) when (ex is YamlException or ArgumentException)
         {
             throw new TargetsFileException(path, ex, TargetsFileException.InvalidDocumentReasonCode);
         }
@@ -77,6 +85,13 @@ public static class TargetsFile
             if (stream.Documents.Count == 0)
             {
                 return doc;
+            }
+
+            if (stream.Documents.Count > 1)
+            {
+                throw new TargetsFileValidationException(
+                    InvalidDocumentCountReasonCode,
+                    new FormatException("targets.yaml must contain exactly one document."));
             }
 
             if (stream.Documents[0].RootNode is not YamlMappingNode root)
@@ -180,75 +195,75 @@ public static class TargetsFile
             switch (key)
             {
                 case "name":
-                    name = ScalarOrNull(value);
+                    name = ScalarOrNull(value, "name", InvalidNameReasonCode);
                     break;
                 case "id":
-                    id = ScalarOrNull(value);
+                    id = ScalarOrNull(value, "id", InvalidIdReasonCode);
                     break;
                 case "componentId":
-                    componentId = ScalarOrNull(value);
+                    componentId = ScalarOrNull(value, "componentId", InvalidComponentIdReasonCode);
                     break;
                 case "state":
-                    if (value is not YamlScalarNode stateNode)
-                    {
-                        throw new TargetsFileValidationException(
-                            InvalidStateReasonCode,
-                            new FormatException("targets.yaml entry 'state' must be a scalar."));
-                    }
-
-                    // ScalarOrNull still normalizes explicit YAML null forms ("~", "null", empty) to
-                    // the default 'listed' state below; the type check above only rules out
-                    // non-scalar shapes such as sequences or mappings.
-                    string? stateText = ScalarOrNull(stateNode);
+                    string? stateText = ScalarOrNull(value, "state", InvalidStateReasonCode);
                     state = stateText is null ? TargetState.Listed : ParseState(stateText);
                     break;
                 case "acquiredVersion":
-                    acquiredVersion = ScalarOrNull(value);
+                    acquiredVersion = ScalarOrNull(
+                        value,
+                        "acquiredVersion",
+                        InvalidAcquiredVersionReasonCode);
                     break;
                 case "availableVersion":
-                    availableVersion = ScalarOrNull(value);
+                    availableVersion = ScalarOrNull(
+                        value,
+                        "availableVersion",
+                        InvalidAvailableVersionReasonCode);
                     break;
                 case "arch":
-                    arch = ScalarOrNull(value);
+                    arch = ScalarOrNull(value, "arch", InvalidArchReasonCode);
                     break;
                 case "scope":
-                    scope = ScalarOrNull(value);
+                    scope = ScalarOrNull(value, "scope", InvalidScopeReasonCode);
                     break;
                 case "pin":
-                    pin = ScalarOrNull(value);
+                    pin = ScalarOrNull(value, "pin", InvalidPinReasonCode);
                     break;
                 case "allowlist":
-                    if (value is YamlSequenceNode allowlistSequence)
+                    if (value is not YamlSequenceNode allowlistSequence)
                     {
-                        foreach (YamlNode entryNode in allowlistSequence.Children)
+                        throw new TargetsFileValidationException(
+                            InvalidAllowlistReasonCode,
+                            new FormatException("targets.yaml entry 'allowlist' must be a sequence."));
+                    }
+
+                    foreach (YamlNode entryNode in allowlistSequence.Children)
+                    {
+                        string? item = ScalarOrNull(entryNode, "allowlist", InvalidAllowlistReasonCode);
+                        if (item is null)
                         {
-                            string? item = ScalarOrNull(entryNode);
-                            if (item is not null)
-                            {
-                                allowlist.Add(item);
-                            }
+                            throw new TargetsFileValidationException(
+                                InvalidAllowlistReasonCode,
+                                new FormatException("targets.yaml entry 'allowlist' items must not be null."));
                         }
+
+                        allowlist.Add(item);
                     }
 
                     break;
                 case "recipe":
-                    recipe = ScalarOrNull(value);
+                    recipe = ScalarOrNull(value, "recipe", InvalidRecipeReasonCode);
                     break;
                 case "lastAttempt":
-                    if (value is not YamlScalarNode lastAttemptNode)
-                    {
-                        throw new TargetsFileValidationException(
-                            InvalidLastAttemptReasonCode,
-                            new FormatException("targets.yaml entry 'lastAttempt' must be a scalar."));
-                    }
-
-                    string? lastAttemptText = ScalarOrNull(lastAttemptNode);
+                    string? lastAttemptText = ScalarOrNull(
+                        value,
+                        "lastAttempt",
+                        InvalidLastAttemptReasonCode);
                     lastAttempt = lastAttemptText is null
                         ? null
                         : ParseTimestamp(lastAttemptText);
                     break;
                 case "lastError":
-                    lastError = ScalarOrNull(value);
+                    lastError = ScalarOrNull(value, "lastError", InvalidLastErrorReasonCode);
                     break;
                 default:
                     extras[key] = value;
@@ -309,11 +324,13 @@ public static class TargetsFile
                 new FormatException("A targets.yaml entry is missing or has a blank required 'name' field."))
             : value;
 
-    private static string? ScalarOrNull(YamlNode node)
+    private static string? ScalarOrNull(YamlNode node, string fieldName, string reasonCode)
     {
         if (node is not YamlScalarNode scalar)
         {
-            return null;
+            throw new TargetsFileValidationException(
+                reasonCode,
+                new FormatException($"targets.yaml entry '{fieldName}' must be a scalar."));
         }
 
         if (scalar.Style == ScalarStyle.Plain &&
@@ -333,9 +350,6 @@ public static class TargetsFile
                 InvalidKeyReasonCode,
                 new FormatException("targets.yaml keys must be scalar values."));
     }
-
-    private static bool IsYamlRepresentationModelArgumentException(ArgumentException ex) =>
-        ex.StackTrace?.Contains("YamlDotNet", StringComparison.Ordinal) == true;
 
     private sealed class TargetsFileValidationException(string reasonCode, Exception innerException)
         : FormatException("Invalid targets document.", innerException)

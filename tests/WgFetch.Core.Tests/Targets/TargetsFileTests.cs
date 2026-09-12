@@ -211,7 +211,7 @@ public class TargetsFileTests
 
             Assert.Equal(path, exception.Path);
             Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
-            Assert.Matches(@"line \d+, column \d+", exception.Message);
+            Assert.Contains("line 1, column 29", exception.Message, StringComparison.Ordinal);
             Assert.DoesNotContain('\n', exception.Message);
             Assert.DoesNotContain("this is: not valid", exception.Message, StringComparison.Ordinal);
         }
@@ -238,6 +238,7 @@ public class TargetsFileTests
     [InlineData("targets:\n  - name: nina\n    state: []", "invalid-state")]
     [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp", "invalid-last-attempt")]
     [InlineData("targets:\n  - name: nina\n    lastAttempt: []", "invalid-last-attempt")]
+    [InlineData("---\nversion: 1\n---\ntargets: []", "invalid-document-count")]
     [InlineData("? [invalid]\n: value", "invalid-key")]
     [InlineData("version: {}", "invalid-version")]
     [InlineData("targets: {}", "invalid-targets")]
@@ -245,6 +246,19 @@ public class TargetsFileTests
     [InlineData("targets:\n  - id: AstroStack.NINA", "missing-name")]
     [InlineData("targets:\n  - name: \"   \"", "missing-name")]
     [InlineData("[]", "invalid-document-root")]
+    [InlineData("targets:\n  - name: []", "invalid-name")]
+    [InlineData("targets:\n  - name: nina\n    id: []", "invalid-id")]
+    [InlineData("targets:\n  - name: nina\n    componentId: {}", "invalid-component-id")]
+    [InlineData("targets:\n  - name: nina\n    acquiredVersion: []", "invalid-acquired-version")]
+    [InlineData("targets:\n  - name: nina\n    availableVersion: {}", "invalid-available-version")]
+    [InlineData("targets:\n  - name: nina\n    arch: []", "invalid-arch")]
+    [InlineData("targets:\n  - name: nina\n    scope: {}", "invalid-scope")]
+    [InlineData("targets:\n  - name: nina\n    pin: []", "invalid-pin")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: {}", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: [[]]", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: [null]", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    recipe: []", "invalid-recipe")]
+    [InlineData("targets:\n  - name: nina\n    lastError: {}", "invalid-last-error")]
     public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml, string reasonCode)
     {
         string path = Path.Combine(AppContext.BaseDirectory, $"invalid-{Guid.NewGuid():N}.yaml");
