@@ -18,7 +18,8 @@ internal static class RegularFileText
 
     /// <summary>
     /// Reads <paramref name="path"/> as text, failing closed with an <see cref="IOException"/> when the
-    /// path is not a readable regular file or holds more than <paramref name="maxBytes"/>.
+    /// path is not a readable regular file, holds more than <paramref name="maxBytes"/>, or runs on an
+    /// unsupported platform.
     /// </summary>
     internal static Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken) =>
         OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
@@ -142,8 +143,9 @@ internal static class RegularFileText
     {
         // This buffer exceeds sizeof(struct stat) on supported Unix ABIs; only st_mode is inspected.
         private const int StatBufferBytes = 256;
-        private const ushort FileTypeMask = 0xF000;
-        private const ushort RegularFile = 0x8000;
+        private const int FileTypeMask = 0xF000;
+        private const int RegularFile = 0x8000;
+        // st_mode is a ushort at offset 4 on macOS and a uint at these offsets on Linux x64/arm/x86.
         private const int MacOsModeOffset = 4;
         private const int Linux64ModeOffset = 24;
         private const int LinuxOtherModeOffset = 16;
@@ -162,12 +164,14 @@ internal static class RegularFileText
                     return false;
                 }
 
-                var modeOffset = OperatingSystem.IsMacOS()
-                    ? MacOsModeOffset
-                    : RuntimeInformation.ProcessArchitecture == Architecture.X64
-                        ? Linux64ModeOffset
-                        : LinuxOtherModeOffset;
-                var mode = BitConverter.ToUInt16(stat, modeOffset);
+                if (!TryGetModeOffset(out var modeOffset))
+                {
+                    return false;
+                }
+
+                var mode = OperatingSystem.IsMacOS()
+                    ? BitConverter.ToUInt16(stat, modeOffset)
+                    : BitConverter.ToInt32(stat, modeOffset);
                 isRegular = (mode & FileTypeMask) == RegularFile;
                 return true;
             }
@@ -192,8 +196,36 @@ internal static class RegularFileText
             }
             catch (EntryPointNotFoundException)
             {
-                return Fxstat(1, descriptor, stat) == 0;
+                return TryGetFxstatVersion(out var version) && Fxstat(version, descriptor, stat) == 0;
             }
+        }
+
+        private static bool TryGetModeOffset(out int modeOffset)
+        {
+            if (OperatingSystem.IsMacOS())
+            {
+                modeOffset = MacOsModeOffset;
+                return true;
+            }
+
+            modeOffset = RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.X64 => Linux64ModeOffset,
+                Architecture.X86 or Architecture.Arm or Architecture.Arm64 => LinuxOtherModeOffset,
+                _ => 0,
+            };
+            return modeOffset != 0;
+        }
+
+        private static bool TryGetFxstatVersion(out int version)
+        {
+            version = RuntimeInformation.ProcessArchitecture switch
+            {
+                Architecture.X64 => 1,
+                Architecture.X86 or Architecture.Arm => 3,
+                _ => 0,
+            };
+            return version != 0;
         }
 
         [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
