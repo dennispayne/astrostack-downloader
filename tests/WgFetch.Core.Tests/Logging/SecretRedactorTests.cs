@@ -100,10 +100,10 @@ public sealed class SecretRedactorTests
     [Fact]
     public void Redacts_an_encoded_known_secret_in_a_valueless_query_component()
     {
-        var redacted = SecretRedactor.RedactUrl("https://host.example/?%61%62%63", ["abc"]);
+        var redacted = SecretRedactor.RedactUrl("https://host.example/?%7A%71%78", ["zqx"]);
 
-        Assert.DoesNotContain("%61%62%63", redacted, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("abc", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("%7A%71%78", redacted, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("zqx", redacted, StringComparison.Ordinal);
         Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
     }
 
