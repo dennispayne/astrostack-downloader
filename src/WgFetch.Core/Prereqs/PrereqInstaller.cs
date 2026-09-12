@@ -69,11 +69,9 @@ public sealed class PrereqInstaller
     private readonly IReadOnlyList<PinnedModel> _models;
 
     /// <summary>
-    /// One lock per manifest path, serializing its read/merge/write so two concurrent selective
-    /// installs into the same <c>modelsRoot</c> cannot both read the same snapshot and have the
-    /// last writer silently drop the other run's newly installed model. Entries are reference
-    /// counted and removed once no install is in flight for that path, so a long-running host
-    /// juggling many models roots does not leak a semaphore per path forever.
+    /// One lock per manifest path, serializing each install from asset writes through the manifest
+    /// replacement. The in-process semaphore is paired with an OS-backed file lock so separate
+    /// wgfetch processes cannot race either. Entries are removed once no local install is in flight.
     /// </summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, RefCountedLock> ManifestLocks = new(StringComparer.Ordinal);
 
@@ -83,6 +81,8 @@ public sealed class PrereqInstaller
 
         public int RefCount;
     }
+
+    private static readonly TimeSpan ManifestLockRetryDelay = TimeSpan.FromMilliseconds(25);
 
     public PrereqInstaller(IHttpGateway http, ILogger? logger = null, IReadOnlyList<PinnedModel>? models = null)
     {
@@ -106,15 +106,18 @@ public sealed class PrereqInstaller
         }
 
         var lockAcquired = false;
+        FileStream? fileLock = null;
         try
         {
             var wait = entry.Semaphore.WaitAsync(cancellationToken);
             await wait.ConfigureAwait(false);
             lockAcquired = true;
-            return new ManifestLockScope(key, entry);
+            fileLock = await AcquireManifestFileLockAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+            return new ManifestLockScope(key, entry, fileLock);
         }
         catch
         {
+            fileLock?.Dispose();
             ReleaseManifestLockReference(key, entry, releaseSemaphore: lockAcquired);
             throw;
         }
@@ -151,10 +154,11 @@ public sealed class PrereqInstaller
         }
     }
 
-    private sealed class ManifestLockScope(string key, RefCountedLock entry) : IDisposable
+    private sealed class ManifestLockScope(string key, RefCountedLock entry, FileStream fileLock) : IDisposable
     {
         public void Dispose()
         {
+            fileLock.Dispose();
             ReleaseManifestLockReference(key, entry, releaseSemaphore: true);
         }
     }
@@ -237,6 +241,11 @@ public sealed class PrereqInstaller
         var messages = new List<string>();
         var success = true;
         var installed = new List<PrereqInstalledModel>();
+        var manifestPath = Path.Combine(modelsRoot, "install-manifest.json");
+        var hasInstallWork = !dryRun && _models.Any(model => selectedModels.Contains(model.Id) && model.FullyPinned);
+        using var manifestLock = hasInstallWork
+            ? await AcquireManifestLockAsync(manifestPath, cancellationToken).ConfigureAwait(false)
+            : null;
 
         foreach (var model in _models)
         {
@@ -306,28 +315,31 @@ public sealed class PrereqInstaller
 
         if (!dryRun && installed.Count > 0)
         {
-            var manifestPath = Path.Combine(modelsRoot, "install-manifest.json");
-            using var manifestLock = await AcquireManifestLockAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+            var existing = await LoadExistingManifestModelsAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+            var merged = existing
+                .Where(model => installed.All(newModel => !string.Equals(newModel.Id, model.Id, StringComparison.Ordinal)))
+                .Concat(installed)
+                .ToArray();
+
+            var manifest = new PrereqInstallManifest
             {
-                var existing = await LoadExistingManifestModelsAsync(manifestPath, cancellationToken).ConfigureAwait(false);
-                var merged = existing
-                    .Where(model => installed.All(newModel => !string.Equals(newModel.Id, model.Id, StringComparison.Ordinal)))
-                    .Concat(installed)
-                    .ToArray();
+                InstalledUtc = DateTimeOffset.UtcNow,
+                Models = merged,
+            };
 
-                var manifest = new PrereqInstallManifest
-                {
-                    InstalledUtc = DateTimeOffset.UtcNow,
-                    Models = merged,
-                };
-
-                Directory.CreateDirectory(modelsRoot);
-                var temp = manifestPath + ".tmp";
+            Directory.CreateDirectory(modelsRoot);
+            var temp = manifestPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
                 await File.WriteAllTextAsync(
                     temp,
                     JsonSerializer.Serialize(manifest, PrereqJsonContext.Default.PrereqInstallManifest),
                     cancellationToken).ConfigureAwait(false);
                 File.Move(temp, manifestPath, overwrite: true);
+            }
+            finally
+            {
+                TryDelete(temp);
             }
         }
 
@@ -341,6 +353,33 @@ public sealed class PrereqInstaller
         // The lock only needs to serialize access to the same on-disk file: fold case solely where the
         // filesystem itself is case-insensitive (Windows/macOS), never on case-sensitive Linux paths.
         return OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? full.ToLowerInvariant() : full;
+    }
+
+    private static async Task<FileStream> AcquireManifestFileLockAsync(
+        string manifestPath,
+        CancellationToken cancellationToken)
+    {
+        var fullPath = Path.GetFullPath(manifestPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        var lockPath = fullPath + ".lock";
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.Asynchronous);
+            }
+            catch (IOException)
+            {
+                await Task.Delay(ManifestLockRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>
@@ -377,7 +416,7 @@ public sealed class PrereqInstaller
         string path,
         CancellationToken cancellationToken)
     {
-        var temp = path + ".tmp";
+        var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
             var response = await _http
@@ -413,17 +452,18 @@ public sealed class PrereqInstaller
         }
         finally
         {
-            if (File.Exists(temp))
-            {
-                try
-                {
-                    File.Delete(temp);
-                }
-                catch (IOException)
-                {
-                    // Best effort.
-                }
-            }
+            TryDelete(temp);
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
         }
     }
 }

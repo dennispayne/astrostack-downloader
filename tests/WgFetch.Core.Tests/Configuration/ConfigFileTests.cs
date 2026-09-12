@@ -75,7 +75,78 @@ public sealed class ConfigFileTests
         await ConfigFile.SaveAsync(new WgFetchConfig { Scope = "machine" }, path, CancellationToken.None);
 
         Assert.Equal("machine", (await ConfigFile.LoadAsync(path, CancellationToken.None)).Scope);
-        Assert.False(File.Exists(path + ".tmp"));
+        Assert.Empty(Directory.GetFiles(temp.Path, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Saving_uses_owner_only_permissions_on_Unix()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var temp = new TempDirectory();
+        var path = temp.Combine("nested", "config.json");
+
+        await ConfigFile.SaveAsync(new WgFetchConfig { AiKey = "secret" }, path, CancellationToken.None);
+
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            File.GetUnixFileMode(path));
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+            File.GetUnixFileMode(Path.GetDirectoryName(path)!));
+    }
+
+    [Fact]
+    public async Task Saving_to_an_existing_custom_directory_preserves_its_Unix_permissions()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var temp = new TempDirectory();
+        var directory = temp.Combine("shared");
+        Directory.CreateDirectory(directory);
+        const UnixFileMode mode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute;
+        File.SetUnixFileMode(directory, mode);
+
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { AiKey = "secret" },
+            Path.Combine(directory, "config.json"),
+            CancellationToken.None);
+
+        Assert.Equal(mode, File.GetUnixFileMode(directory));
+    }
+
+    [Fact]
+    public async Task Update_waits_for_an_external_file_lock()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(new WgFetchConfig { Scope = "user" }, path, CancellationToken.None);
+        await using var externalLock = new FileStream(
+            path + ".lock",
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        var update = ConfigFile.UpdateAsync(
+            path,
+            config => config with { LogLevel = "debug" },
+            CancellationToken.None);
+        await Task.Delay(75);
+        Assert.False(update.IsCompleted);
+
+        await externalLock.DisposeAsync();
+        var updated = await update;
+
+        Assert.Equal("user", updated.Scope);
+        Assert.Equal("debug", updated.LogLevel);
     }
 
     [Fact]
@@ -149,6 +220,26 @@ public sealed class ConfigRedactionTests
 
         Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
         Assert.DoesNotContain(secret, redacted.SearchEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_even_a_short_configured_secret_from_every_string_field()
+    {
+        const string secret = "abc";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            OutputDirectory = $"/srv/{secret}/source",
+            AiEndpoint = $"https://ai.example/{secret}",
+            AiModel = $"model-{secret}",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain(secret, redacted.OutputDirectory, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.AiModel, StringComparison.Ordinal);
+        Assert.Equal(SecretRedactor.Placeholder, redacted.AiKey);
     }
 
     public sealed class ConfigSettingsTests

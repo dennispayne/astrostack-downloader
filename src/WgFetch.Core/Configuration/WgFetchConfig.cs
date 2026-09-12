@@ -96,19 +96,54 @@ public sealed record WgFetchConfig
     /// (for example <c>******host/...</c> or <c>?api_key=...</c>), so they are run through
     /// the same <see cref="Logging.SecretRedactor"/> used for logs (docs/REQUIREMENTS.md, "Privacy").
     /// </summary>
-    public WgFetchConfig Redacted() => this with
+    public WgFetchConfig Redacted()
     {
-        AiEndpoint = AiEndpoint is null ? null : Logging.SecretRedactor.Redact(AiEndpoint, Secrets),
-        SearchEndpoint = SearchEndpoint is null ? null : Logging.SecretRedactor.Redact(SearchEndpoint, Secrets),
-        AiKey = string.IsNullOrEmpty(AiKey) ? AiKey : Logging.SecretRedactor.Placeholder,
-        SearchKey = string.IsNullOrEmpty(SearchKey) ? SearchKey : Logging.SecretRedactor.Placeholder,
-        GithubToken = string.IsNullOrEmpty(GithubToken) ? GithubToken : Logging.SecretRedactor.Placeholder,
-    };
+        var secrets = Secrets.ToArray();
+        string? Redact(string? value)
+        {
+            if (value is null)
+            {
+                return null;
+            }
+
+            var redacted = value;
+            foreach (var secret in secrets)
+            {
+                redacted = redacted.Replace(secret, Logging.SecretRedactor.Placeholder, StringComparison.Ordinal);
+                redacted = redacted.Replace(
+                    Uri.EscapeDataString(secret),
+                    Logging.SecretRedactor.Placeholder,
+                    StringComparison.Ordinal);
+            }
+
+            return Logging.SecretRedactor.Redact(redacted);
+        }
+
+        return this with
+        {
+            OutputDirectory = Redact(OutputDirectory),
+            CacheDirectory = Redact(CacheDirectory),
+            ModelsRoot = Redact(ModelsRoot),
+            Architecture = Redact(Architecture),
+            Scope = Redact(Scope),
+            AiMode = Redact(AiMode),
+            AiEndpoint = Redact(AiEndpoint),
+            AiModel = Redact(AiModel),
+            AiKey = string.IsNullOrEmpty(AiKey) ? AiKey : Logging.SecretRedactor.Placeholder,
+            SearchProvider = Redact(SearchProvider),
+            SearchEndpoint = Redact(SearchEndpoint),
+            SearchKey = string.IsNullOrEmpty(SearchKey) ? SearchKey : Logging.SecretRedactor.Placeholder,
+            GithubToken = string.IsNullOrEmpty(GithubToken) ? GithubToken : Logging.SecretRedactor.Placeholder,
+            LogLevel = Redact(LogLevel),
+        };
+    }
 }
 
 /// <summary>Loads and saves <see cref="WgFetchConfig"/>; a missing or malformed file is never fatal.</summary>
 public static class ConfigFile
 {
+    private static readonly TimeSpan LockRetryDelay = TimeSpan.FromMilliseconds(25);
+
     public static string DefaultPath => Path.Combine(WgFetchPaths.RootDirectory, "config.json");
 
     public static async Task<WgFetchConfig> LoadAsync(string? path, CancellationToken cancellationToken)
@@ -134,16 +169,107 @@ public static class ConfigFile
 
     public static async Task SaveAsync(WgFetchConfig config, string path, CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        var temp = path + ".tmp";
-        await using (var stream = File.Create(temp))
-        {
-            await JsonSerializer
-                .SerializeAsync(stream, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await using var transactionLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
+        await SaveUnlockedAsync(config, path, cancellationToken).ConfigureAwait(false);
+    }
 
-        File.Move(temp, path, overwrite: true);
+    public static async Task<WgFetchConfig> UpdateAsync(
+        string path,
+        Func<WgFetchConfig, WgFetchConfig> update,
+        CancellationToken cancellationToken)
+    {
+        await using var transactionLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
+        var current = await LoadAsync(path, cancellationToken).ConfigureAwait(false);
+        var updated = update(current);
+        await SaveUnlockedAsync(updated, path, cancellationToken).ConfigureAwait(false);
+        return updated;
+    }
+
+    private static async Task SaveUnlockedAsync(
+        WgFetchConfig config,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        EnsureProtectedDirectory(path);
+
+        var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            await using (var stream = new FileStream(
+                temp,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 4096,
+                FileOptions.Asynchronous))
+            {
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+
+                await JsonSerializer
+                    .SerializeAsync(stream, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            File.Move(temp, path, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temp);
+        }
+    }
+
+    private static async Task<FileStream> AcquireLockAsync(string path, CancellationToken cancellationToken)
+    {
+        var fullPath = Path.GetFullPath(path);
+        EnsureProtectedDirectory(fullPath);
+        var lockPath = fullPath + ".lock";
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.Asynchronous);
+            }
+            catch (IOException)
+            {
+                await Task.Delay(LockRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static void EnsureProtectedDirectory(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath)!;
+        var existed = Directory.Exists(directory);
+        Directory.CreateDirectory(directory);
+        if (!OperatingSystem.IsWindows() &&
+            (!existed || string.Equals(fullPath, Path.GetFullPath(DefaultPath), StringComparison.Ordinal)))
+        {
+            File.SetUnixFileMode(
+                directory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 }
 

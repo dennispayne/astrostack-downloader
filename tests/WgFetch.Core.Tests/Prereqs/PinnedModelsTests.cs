@@ -292,6 +292,7 @@ public sealed class PinnedModelsTests
 
         var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
         Assert.All(models, model => Assert.Contains($"\"id\": \"{model.Id}\"", manifest, StringComparison.Ordinal));
+        Assert.Empty(Directory.GetFiles(temp.Path, "*.tmp", SearchOption.AllDirectories));
     }
 
     [Fact]
@@ -309,6 +310,27 @@ public sealed class PinnedModelsTests
         held.Dispose();
 
         Assert.False(PrereqInstaller.IsManifestLockTracked(manifestPath));
+    }
+
+    [Fact]
+    public async Task Manifest_lock_waits_for_an_external_file_lock()
+    {
+        using var temp = new TempDirectory();
+        var manifestPath = temp.Combine("install-manifest.json");
+        await using var externalLock = new FileStream(
+            manifestPath + ".lock",
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        var waiting = PrereqInstaller.AcquireManifestLockAsync(manifestPath, CancellationToken.None);
+        await Task.Delay(75);
+        Assert.False(waiting.IsCompleted);
+
+        await externalLock.DisposeAsync();
+        using var acquired = await waiting;
+
+        Assert.True(PrereqInstaller.IsManifestLockTracked(manifestPath));
     }
 
     private static PinnedModel TestModel(string id, string url, byte[] bytes) =>

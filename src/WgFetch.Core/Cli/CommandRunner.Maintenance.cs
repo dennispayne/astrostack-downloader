@@ -89,7 +89,14 @@ public sealed partial class CommandRunner
                     return ExitCode.UsageError;
                 }
 
-                await ConfigFile.SaveAsync(updated, path, cancellationToken).ConfigureAwait(false);
+                await ConfigFile.UpdateAsync(
+                    path,
+                    current =>
+                    {
+                        ConfigSettings.TrySet(current, parsed.Positional[0], parsed.Positional[1], out var latest, out _);
+                        return latest;
+                    },
+                    cancellationToken).ConfigureAwait(false);
                 Report($"{parsed.Positional[0]}: saved");
                 Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "saved" });
                 return ExitCode.Success;
@@ -107,7 +114,14 @@ public sealed partial class CommandRunner
                     return ExitCode.UsageError;
                 }
 
-                await ConfigFile.SaveAsync(without, path, cancellationToken).ConfigureAwait(false);
+                await ConfigFile.UpdateAsync(
+                    path,
+                    current =>
+                    {
+                        ConfigSettings.TryUnset(current, parsed.Positional[0], out var latest, out _);
+                        return latest;
+                    },
+                    cancellationToken).ConfigureAwait(false);
                 Report($"{parsed.Positional[0]}: unset");
                 Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "unset" });
                 return ExitCode.Success;
