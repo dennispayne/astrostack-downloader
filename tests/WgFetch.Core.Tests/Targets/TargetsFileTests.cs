@@ -368,6 +368,19 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public async Task LoadAsync_LinuxNullDevice_FailsClosedInsteadOfParsingItAsAnEmptyDocument()
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists("/dev/null"))
+        {
+            return;
+        }
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync("/dev/null"));
+
+        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SaveAsync_ThenLoadAsync_RoundTrips_AndLeavesNoTempFile()
     {
         string dir = Path.Combine(AppContext.BaseDirectory, $"targets-save-{Guid.NewGuid():N}");

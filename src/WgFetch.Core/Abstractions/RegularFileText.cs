@@ -7,10 +7,10 @@ namespace WgFetch.Core.Abstractions;
 /// <summary>
 /// Reads a small text file that the user controls but the tool does not trust, without ever blocking
 /// on a special file and without letting an endless one (such as <c>/dev/zero</c>) grow in memory.
-/// On Linux the path is opened once with <c>O_NONBLOCK</c> and every later decision is made about
+/// On Unix the path is opened once with <c>O_NONBLOCK</c> and every later decision is made about
 /// that one open description, so a path swapped between the check and the read cannot smuggle a FIFO
-/// past the check; anything that cannot be shown to be a regular file is rejected rather than read.
-/// Other platforms have no comparable special-file hazard for these paths and use the managed reader.
+/// past the check; on Windows the equivalent handle is inspected before reading. Anything that cannot
+/// be shown to be a regular file is rejected rather than read.
 /// </summary>
 internal static class RegularFileText
 {
@@ -21,33 +21,20 @@ internal static class RegularFileText
     /// path is not a readable regular file or holds more than <paramref name="maxBytes"/>.
     /// </summary>
     internal static Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken) =>
-        OperatingSystem.IsLinux()
-            ? LinuxReader.ReadAllTextAsync(path, maxBytes, cancellationToken)
-            : ReadManagedAsync(path, maxBytes, cancellationToken);
-
-    private static async Task<string> ReadManagedAsync(string path, int maxBytes, CancellationToken cancellationToken)
-    {
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        await using (stream.ConfigureAwait(false))
-        {
-            return await ReadBoundedAsync(stream, maxBytes, typeVerified: true, cancellationToken).ConfigureAwait(false);
-        }
-    }
+        OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
+            ? UnixReader.ReadAllTextAsync(path, maxBytes, cancellationToken)
+            : OperatingSystem.IsWindows()
+                ? WindowsReader.ReadAllTextAsync(path, maxBytes, cancellationToken)
+                : Task.FromException<string>(new IOException("unable to verify that the path is a regular file on this platform."));
 
     /// <summary>
-    /// Reads at most <paramref name="maxBytes"/>. A file type this build could not identify must still
-    /// not be able to feed an endless stream into memory, so the cap — not the type check — is what
-    /// bounds the read. When <paramref name="typeVerified"/> is false the reader also rejects a handle
-    /// that reports no length yet keeps returning bytes, which is how a character device such as
-    /// <c>/dev/zero</c> differs from a genuinely empty file.
+    /// Reads at most <paramref name="maxBytes"/> from a handle that has already been proven regular.
     /// </summary>
     private static async Task<string> ReadBoundedAsync(
         Stream stream,
         int maxBytes,
-        bool typeVerified,
         CancellationToken cancellationToken)
     {
-        var lengthIsKnown = stream.CanSeek && stream.Length > 0;
         using var content = new MemoryStream();
         var chunk = new byte[ChunkBytes];
         int read;
@@ -58,11 +45,6 @@ internal static class RegularFileText
                 throw new IOException($"file is larger than the {maxBytes} byte limit.");
             }
 
-            if (!typeVerified && !lengthIsKnown)
-            {
-                throw new IOException("path is not a regular file.");
-            }
-
             content.Write(chunk, 0, read);
         }
 
@@ -71,11 +53,11 @@ internal static class RegularFileText
         return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static class LinuxReader
+    private static class UnixReader
     {
         private const int ReadOnly = 0x0000;
-        private const int NonBlocking = 0x0800;
-        private const int CloseOnExec = 0x80000;
+        private static readonly int NonBlocking = OperatingSystem.IsMacOS() ? 0x0004 : 0x0800;
+        private static readonly int CloseOnExec = OperatingSystem.IsMacOS() ? 0x01000000 : 0x80000;
 
         private const int NoSuchFileOrDirectory = 2;
         private const int NotADirectory = 20;
@@ -110,8 +92,8 @@ internal static class RegularFileText
             // From here the stream owns the descriptor and closes it on dispose.
             await using (stream.ConfigureAwait(false))
             {
-                var typeVerified = EnsureRegularFile(handle, stream);
-                return await ReadBoundedAsync(stream, maxBytes, typeVerified, cancellationToken).ConfigureAwait(false);
+                EnsureRegularFile(handle);
+                return await ReadBoundedAsync(stream, maxBytes, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -137,20 +119,15 @@ internal static class RegularFileText
         }
 
         /// <summary>
-        /// Rejects anything not shown to be a regular file and reports whether the file type itself was
-        /// established. <c>statx</c> answers directly; when it is missing or refused, seekability rules
-        /// out the hazards that can block or masquerade as an empty document — a FIFO or socket is never
-        /// seekable — and the caller tightens the read for the types seekability cannot separate.
+        /// Rejects anything not shown to be a regular file. <c>fstat</c> inspects the opened descriptor,
+        /// so a rename after <see cref="Open"/> cannot invalidate the result.
         /// </summary>
-        private static bool EnsureRegularFile(SafeFileHandle handle, FileStream stream)
+        private static void EnsureRegularFile(SafeFileHandle handle)
         {
-            var typeVerified = LinuxFileType.TryGetIsRegular(handle, out var isRegular);
-            if (typeVerified ? !isRegular : !stream.CanSeek)
+            if (!UnixFileType.TryGetIsRegular(handle, out var isRegular) || !isRegular)
             {
                 throw new IOException("path is not a regular file.");
             }
-
-            return typeVerified;
         }
 
         [DllImport("libc", EntryPoint = "open", SetLastError = true)]
@@ -158,19 +135,13 @@ internal static class RegularFileText
     }
 
     /// <summary>
-    /// Answers "is this open file description a regular file?" using <c>statx</c> against the handle
-    /// itself (<c>AT_EMPTY_PATH</c>), never the path, so the answer cannot be invalidated by a rename.
-    /// Kernels and libc versions without <c>statx</c> report "unknown" instead of failing: callers must
-    /// stay safe without an answer.
+    /// Answers "is this open file description a regular file?" using <c>fstat</c> against the handle
+    /// itself, never the path, so the answer cannot be invalidated by a rename.
     /// </summary>
-    private static class LinuxFileType
+    private static class UnixFileType
     {
-        private const int AtEmptyPath = 0x1000;
-        private const uint FileTypeMaskRequest = 1;
         private const ushort FileTypeMask = 0xF000;
         private const ushort RegularFile = 0x8000;
-
-        private static readonly byte[] EmptyPath = [0];
 
         internal static bool TryGetIsRegular(SafeFileHandle handle, out bool isRegular)
         {
@@ -179,12 +150,15 @@ internal static class RegularFileText
             try
             {
                 handle.DangerousAddRef(ref referenced);
-                if (Statx((int)handle.DangerousGetHandle(), EmptyPath, AtEmptyPath, FileTypeMaskRequest, out var stat) != 0)
+                var stat = new byte[256];
+                if (Fstat((int)handle.DangerousGetHandle(), stat) != 0)
                 {
                     return false;
                 }
 
-                isRegular = (stat.Mode & FileTypeMask) == RegularFile;
+                var modeOffset = OperatingSystem.IsMacOS() ? 4 : 24;
+                var mode = BitConverter.ToUInt16(stat, modeOffset);
+                isRegular = (mode & FileTypeMask) == RegularFile;
                 return true;
             }
             catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException)
@@ -200,14 +174,46 @@ internal static class RegularFileText
             }
         }
 
-        [DllImport("libc", EntryPoint = "statx", SetLastError = true)]
-        private static extern int Statx(int directoryFileDescriptor, byte[] path, int flags, uint mask, out LinuxStatx stat);
+        [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
+        private static extern int Fstat(int fileDescriptor, byte[] stat);
+    }
 
-        [StructLayout(LayoutKind.Explicit, Size = 256)]
-        private struct LinuxStatx
+    private static class WindowsReader
+    {
+        private const uint GenericRead = 0x80000000;
+        private const uint ShareReadWriteDelete = 0x00000007;
+        private const uint OpenExisting = 3;
+        private const uint FileFlagOverlapped = 0x40000000;
+        private const uint FileTypeDisk = 1;
+
+        internal static async Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)
         {
-            [FieldOffset(28)]
-            internal ushort Mode;
+            using var handle = CreateFile(path, GenericRead, ShareReadWriteDelete, IntPtr.Zero, OpenExisting, FileFlagOverlapped, IntPtr.Zero);
+            if (handle.IsInvalid)
+            {
+                throw new IOException($"unable to open the file (Win32 error {Marshal.GetLastPInvokeError()}).");
+            }
+
+            if (GetFileType(handle) != FileTypeDisk)
+            {
+                throw new IOException("path is not a regular file.");
+            }
+
+            await using var stream = new FileStream(handle, FileAccess.Read);
+            return await ReadBoundedAsync(stream, maxBytes, cancellationToken).ConfigureAwait(false);
         }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFile(
+            string path,
+            uint desiredAccess,
+            uint shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern uint GetFileType(SafeFileHandle handle);
     }
 }
