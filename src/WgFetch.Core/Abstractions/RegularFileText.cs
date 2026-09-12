@@ -247,7 +247,7 @@ internal static class RegularFileText
         private const uint FileAttributeReparsePoint = 0x00000400;
         private const int Win32ErrorFileNotFound = 2;
         private const int Win32ErrorPathNotFound = 3;
-        private const int FileAttributeTagInfo = 9;
+        private const int FileInformationClassAttributeTag = 9;
 
         internal static async Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)
         {
@@ -266,7 +266,7 @@ internal static class RegularFileText
             if (GetFileType(handle) != FileTypeDisk ||
                 !GetFileInformationByHandleEx(
                     handle,
-                    FileAttributeTagInfo,
+                    FileInformationClassAttributeTag,
                     out var attributes,
                     (uint)Marshal.SizeOf<FileAttributeTagInformation>()) ||
                 (attributes.FileAttributes & (FileAttributeDirectory | FileAttributeDevice | FileAttributeReparsePoint)) != 0)

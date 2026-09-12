@@ -146,6 +146,16 @@ public class TargetsFileTests
         Assert.Contains("'targets' must be a sequence", ex.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("targets:\n  - nina")]
+    [InlineData("targets:\n  - [name, nina]")]
+    public void Parse_NonMappingTargetEntry_FailsClosedWithFormatException(string yaml)
+    {
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+
+        Assert.Contains("entries must be mappings", ex.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Parse_OversizedVersionScalar_FailsClosedWithFormatException()
     {
