@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WgFetch.Core.Abstractions;
 
 namespace WgFetch.Core.Configuration;
 
@@ -101,6 +102,8 @@ public sealed record WgFetchConfig
 /// <summary>Loads and saves <see cref="WgFetchConfig"/>; a missing or malformed file is never fatal.</summary>
 public static class ConfigFile
 {
+    private const int MaxConfigBytes = 1024 * 1024;
+
     public static string DefaultPath => Path.Combine(WgFetchPaths.RootDirectory, "config.json");
 
     public static async Task<WgFetchConfig> LoadAsync(string? path, CancellationToken cancellationToken)
@@ -113,10 +116,13 @@ public static class ConfigFile
 
         try
         {
-            await using var stream = File.OpenRead(target);
-            return await JsonSerializer
-                .DeserializeAsync(stream, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
-                .ConfigureAwait(false) ?? new WgFetchConfig();
+            // File.Exists is true for a FIFO too, and opening one with the managed reader blocks until a
+            // writer arrives. Config is read on every invocation — including the cosmetic no-command
+            // landing view — so a special file here must fail closed to defaults, never hang.
+            var text = await RegularFileText
+                .ReadAllTextAsync(target, MaxConfigBytes, cancellationToken)
+                .ConfigureAwait(false);
+            return JsonSerializer.Deserialize(text, ConfigJsonContext.Default.WgFetchConfig) ?? new WgFetchConfig();
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {

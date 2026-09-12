@@ -56,6 +56,49 @@ public sealed class ConfigFileTests
     }
 
     [Fact]
+    public async Task A_fifo_yields_defaults_without_blocking()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        if (!await SpecialFiles.TryCreateFifoAsync(path))
+        {
+            // xUnit 2 has no runtime skip support; hosts without mkfifo have nothing to assert here.
+            return;
+        }
+
+        // No writer ever opens this FIFO: config loading must return on its own rather than wait for one.
+        var load = ConfigFile.LoadAsync(path, CancellationToken.None);
+        var completed = await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(5)));
+
+        Assert.Same(load, completed);
+        var config = await load;
+        Assert.Null(config.OutputDirectory);
+    }
+
+    [Fact]
+    public async Task A_character_device_yields_defaults_without_reading_endlessly()
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists("/dev/zero"))
+        {
+            return;
+        }
+
+        using var cancellation = new CancellationTokenSource();
+        var load = ConfigFile.LoadAsync("/dev/zero", cancellation.Token);
+        var completed = await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(5)));
+        if (!ReferenceEquals(completed, load))
+        {
+            // Never leave an unbounded read of /dev/zero running behind a failing assertion.
+            await cancellation.CancelAsync();
+        }
+
+        Assert.Same(load, completed);
+        var config = await load;
+        Assert.Null(config.OutputDirectory);
+    }
+
+    [Fact]
     public async Task Round_trips_every_field()
     {
         using var temp = new TempDirectory();

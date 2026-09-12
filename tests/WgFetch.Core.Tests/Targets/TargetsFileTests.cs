@@ -1,5 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using WgFetch.Core.Targets;
 using WgFetch.Core.Tests.Support;
 using YamlDotNet.RepresentationModel;
@@ -328,7 +326,7 @@ public class TargetsFileTests
 
         using var temp = new TempDirectory();
         var path = Path.Combine(temp.Path, "targets.yaml");
-        if (!await TryCreateFifoAsync(path))
+        if (!await SpecialFiles.TryCreateFifoAsync(path))
         {
             return;
         }
@@ -365,7 +363,7 @@ public class TargetsFileTests
         // With statx the type check rejects the device outright; without it the read is still bounded.
         Assert.True(
             ex.Message.Contains("not a regular file", StringComparison.Ordinal) ||
-            ex.Message.Contains("targets.yaml limit", StringComparison.Ordinal),
+            ex.Message.Contains("MiB limit", StringComparison.Ordinal),
             ex.Message);
     }
 
@@ -461,31 +459,4 @@ public class TargetsFileTests
     }
 
     private static string Normalize(string text) => text.Replace("\r\n", "\n").TrimEnd('\n');
-
-    private static async Task<bool> TryCreateFifoAsync(string path)
-    {
-        Process? mkfifo;
-        try
-        {
-            mkfifo = Process.Start(new ProcessStartInfo
-            {
-                FileName = "mkfifo",
-                ArgumentList = { path },
-                RedirectStandardError = true,
-                RedirectStandardOutput = true,
-            });
-        }
-        catch (Win32Exception)
-        {
-            return false;
-        }
-
-        if (mkfifo is null)
-        {
-            return false;
-        }
-
-        await mkfifo.WaitForExitAsync(CancellationToken.None);
-        return mkfifo.ExitCode == 0;
-    }
 }
