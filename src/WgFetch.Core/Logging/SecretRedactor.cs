@@ -100,7 +100,7 @@ public static partial class SecretRedactor
                 }
 
                 var name = Uri.UnescapeDataString(parts[i][..eq]);
-                if (SensitiveQueryKeys.Contains(name))
+                if (IsSensitiveQueryKey(name))
                 {
                     parts[i] = parts[i][..eq] + "=" + Placeholder;
                 }
@@ -129,4 +129,10 @@ public static partial class SecretRedactor
 
         return result;
     }
+
+    private static bool IsSensitiveQueryKey(string name) =>
+        SensitiveQueryKeys.Contains(name) ||
+        name.EndsWith("credential", StringComparison.OrdinalIgnoreCase) ||
+        name.EndsWith("signature", StringComparison.OrdinalIgnoreCase) ||
+        name.EndsWith("token", StringComparison.OrdinalIgnoreCase);
 }

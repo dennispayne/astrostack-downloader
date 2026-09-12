@@ -341,7 +341,12 @@ public sealed class VerificationGate
             }
             catch (Exception ex)
             {
-                return Failed(candidate, current, redirects, VerificationStatus.RequestFailed, $"request to '{current}' failed: {ex.Message}");
+                return Failed(
+                    candidate,
+                    current,
+                    redirects,
+                    VerificationStatus.RequestFailed,
+                    $"request to '{Redact(current)}' failed: {Logging.SecretRedactor.Redact(ex.Message)}");
             }
 
             if (!response.IsRedirect)
@@ -354,7 +359,12 @@ public sealed class VerificationGate
                 var location = response.Header("Location");
                 if (string.IsNullOrWhiteSpace(location) || !Uri.TryCreate(current, location, out var next))
                 {
-                    return Failed(candidate, current, redirects, VerificationStatus.RequestFailed, $"redirect from '{current}' had no usable Location header");
+                    return Failed(
+                        candidate,
+                        current,
+                        redirects,
+                        VerificationStatus.RequestFailed,
+                        $"redirect from '{Redact(current)}' had no usable Location header");
                 }
 
                 if (!string.Equals(next.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
@@ -378,6 +388,11 @@ public sealed class VerificationGate
                 }
 
                 redirects.Add(next);
+                if (!string.Equals(current.Authority, next.Authority, StringComparison.OrdinalIgnoreCase))
+                {
+                    request = request with { Headers = RemoveCredentialHeaders(request.Headers) };
+                }
+
                 current = next;
             }
         }
@@ -466,6 +481,22 @@ public sealed class VerificationGate
     }
 
     private static string Redact(Uri uri) => Logging.SecretRedactor.RedactUrl(uri);
+
+    private static IReadOnlyDictionary<string, string> RemoveCredentialHeaders(IReadOnlyDictionary<string, string> headers) =>
+        headers
+            .Where(header => !IsCredentialHeader(header.Key))
+            .ToDictionary(header => header.Key, header => header.Value, StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsCredentialHeader(string name) =>
+        name.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Cookie", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Cookie2", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("api-key", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("apikey", StringComparison.OrdinalIgnoreCase) ||
+        name.EndsWith("-key", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("token", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("secret", StringComparison.OrdinalIgnoreCase);
 
     private static RedirectFollowResult Failed(
         Uri candidate,

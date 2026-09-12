@@ -77,6 +77,58 @@ public sealed class VerificationGateTests
     }
 
     [Fact]
+    public async Task Redirect_follower_strips_credential_headers_when_the_authority_changes()
+    {
+        const string source = "https://github.com/x/setup.exe";
+        const string target = "https://objects.github.com/asset/setup.exe";
+        var http = new StubHttpGateway()
+            .Map(source, StubResponse.Redirect(target))
+            .Map(target, StubResponse.Binary(FakeInstaller.PortableExecutable()));
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Accept"] = "application/octet-stream",
+            ["Authorization"] = "******",
+            ["Cookie"] = "session=credential-value",
+            ["X-Api-Key"] = "credential-value",
+            ["Ocp-Apim-Subscription-Key"] = "credential-value",
+        };
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(source), Headers = headers },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(headers, http.Requests[0].Headers);
+        Assert.Equal("application/octet-stream", http.Requests[1].Headers["Accept"]);
+        Assert.DoesNotContain("Authorization", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Cookie", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Api-Key", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Ocp-Apim-Subscription-Key", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_redacts_signed_cdn_urls_from_request_failures()
+    {
+        const string source = "https://github.com/x/setup.exe";
+        var signature = new string('s', 32);
+        var target = $"https://objects.github.com/asset/setup.exe?X-Amz-Credential=credential-value&X-Amz-Signature={signature}";
+        var http = new StubHttpGateway()
+            .Map(source, StubResponse.Redirect(target))
+            .Map(target, _ => throw new InvalidOperationException($"Could not reach {target}"));
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(source) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.RequestFailed, result.FailureStatus);
+        Assert.DoesNotContain("credential-value", result.FailureReason, StringComparison.Ordinal);
+        Assert.DoesNotContain(signature, result.FailureReason, StringComparison.Ordinal);
+        Assert.Contains(WgFetch.Core.Logging.SecretRedactor.Placeholder, result.FailureReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Accepts_a_plausible_vendor_installer()
     {
         const string url = "https://nighttime-imaging.eu/download/NINASetup.exe";

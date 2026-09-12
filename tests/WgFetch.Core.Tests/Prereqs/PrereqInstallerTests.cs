@@ -82,4 +82,28 @@ public sealed class PrereqInstallerTests
         Assert.Equal([asset.Url], http.Requests.Select(request => request.Url.ToString()));
         Assert.False(File.Exists(directory.Combine(PinnedModels.EmbeddingModelId, asset.RelativePath)));
     }
+
+    [Fact]
+    public async Task Install_does_not_log_signed_cdn_url_parameters_when_a_redirected_request_fails()
+    {
+        var asset = PinnedModels.Embedding.Assets[0];
+        var signature = new string('s', 32);
+        var cdnUrl = $"https://us.aws.cdn.hf.co/models/model.onnx?X-Amz-Credential=credential-value&X-Amz-Signature={signature}";
+        var http = new StubHttpGateway()
+            .Map(asset.Url, StubResponse.Redirect(cdnUrl))
+            .Map(cdnUrl, _ => throw new InvalidOperationException($"Could not reach {cdnUrl}"));
+        var logger = new CapturingLogger();
+        using var directory = new TempDirectory();
+
+        var result = await new PrereqInstaller(http, logger).InstallAsync(
+            directory.Path,
+            includeLanguageModel: false,
+            dryRun: false,
+            CancellationToken.None);
+
+        var output = string.Join(Environment.NewLine, logger.Messages);
+        Assert.False(result.Success);
+        Assert.DoesNotContain("credential-value", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(signature, output, StringComparison.Ordinal);
+    }
 }
