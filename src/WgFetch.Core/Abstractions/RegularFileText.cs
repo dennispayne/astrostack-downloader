@@ -140,8 +140,13 @@ internal static class RegularFileText
     /// </summary>
     private static class UnixFileType
     {
+        // This buffer exceeds sizeof(struct stat) on supported Unix ABIs; only st_mode is inspected.
+        private const int StatBufferBytes = 256;
         private const ushort FileTypeMask = 0xF000;
         private const ushort RegularFile = 0x8000;
+        private const int MacOsModeOffset = 4;
+        private const int Linux64ModeOffset = 24;
+        private const int LinuxOtherModeOffset = 16;
 
         internal static bool TryGetIsRegular(SafeFileHandle handle, out bool isRegular)
         {
@@ -150,13 +155,18 @@ internal static class RegularFileText
             try
             {
                 handle.DangerousAddRef(ref referenced);
-                var stat = new byte[256];
-                if (Fstat((int)handle.DangerousGetHandle(), stat) != 0)
+                var stat = new byte[StatBufferBytes];
+                var descriptor = (int)handle.DangerousGetHandle();
+                if (!TryFstat(descriptor, stat))
                 {
                     return false;
                 }
 
-                var modeOffset = OperatingSystem.IsMacOS() ? 4 : 24;
+                var modeOffset = OperatingSystem.IsMacOS()
+                    ? MacOsModeOffset
+                    : RuntimeInformation.ProcessArchitecture == Architecture.X64
+                        ? Linux64ModeOffset
+                        : LinuxOtherModeOffset;
                 var mode = BitConverter.ToUInt16(stat, modeOffset);
                 isRegular = (mode & FileTypeMask) == RegularFile;
                 return true;
@@ -174,8 +184,23 @@ internal static class RegularFileText
             }
         }
 
+        private static bool TryFstat(int descriptor, byte[] stat)
+        {
+            try
+            {
+                return Fstat(descriptor, stat) == 0;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return Fxstat(1, descriptor, stat) == 0;
+            }
+        }
+
         [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
         private static extern int Fstat(int fileDescriptor, byte[] stat);
+
+        [DllImport("libc", EntryPoint = "__fxstat", SetLastError = true)]
+        private static extern int Fxstat(int version, int fileDescriptor, byte[] stat);
     }
 
     private static class WindowsReader
@@ -199,7 +224,7 @@ internal static class RegularFileText
                 throw new IOException("path is not a regular file.");
             }
 
-            await using var stream = new FileStream(handle, FileAccess.Read);
+            await using var stream = new FileStream(handle, FileAccess.Read, ChunkBytes, isAsync: true);
             return await ReadBoundedAsync(stream, maxBytes, cancellationToken).ConfigureAwait(false);
         }
 

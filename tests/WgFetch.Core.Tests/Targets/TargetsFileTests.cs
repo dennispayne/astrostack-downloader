@@ -381,6 +381,19 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public async Task LoadAsync_WindowsNullDevice_FailsClosedInsteadOfParsingItAsAnEmptyDocument()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync("NUL"));
+
+        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SaveAsync_ThenLoadAsync_RoundTrips_AndLeavesNoTempFile()
     {
         string dir = Path.Combine(AppContext.BaseDirectory, $"targets-save-{Guid.NewGuid():N}");
