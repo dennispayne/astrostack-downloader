@@ -299,10 +299,19 @@ public sealed class CommandRunnerTests
         Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task NoCommand_InvalidSizedEmbeddingAsset_IsNotReportedPresent(int invalidSizeCase)
+    [Fact]
+    public async Task NoCommand_ZeroByteEmbeddingAsset_IsNotReportedPresent() =>
+        await AssertInvalidSizedEmbeddingAssetIsNotReportedPresent(firstAssetSize: 0);
+
+    [Fact]
+    public async Task NoCommand_OversizedEmbeddingAsset_IsNotReportedPresent()
+    {
+        Assert.True(PinnedModels.Embedding.Assets[0].SizeBytes.HasValue, "The oversized regression requires a sized first asset.");
+        await AssertInvalidSizedEmbeddingAssetIsNotReportedPresent(
+            PinnedModels.Embedding.Assets[0].SizeBytes.GetValueOrDefault() + 1);
+    }
+
+    private static async Task AssertInvalidSizedEmbeddingAssetIsNotReportedPresent(long firstAssetSize)
     {
         using var temp = new TempDirectory();
         await TargetsFile.SaveAsync(
@@ -312,10 +321,6 @@ public sealed class CommandRunnerTests
             },
             SourceLayout.TargetsPath(temp.Path),
             CancellationToken.None);
-        Assert.True(PinnedModels.Embedding.Assets[0].SizeBytes.HasValue, "The invalid-size regression requires a sized first asset.");
-        var firstAssetSize = invalidSizeCase == 0
-            ? 0
-            : PinnedModels.Embedding.Assets[0].SizeBytes.GetValueOrDefault() + 1;
         var modelsRoot = temp.Combine("models");
         WriteSparseEmbeddingAssets(modelsRoot, firstAssetSizeOverride: firstAssetSize);
 
