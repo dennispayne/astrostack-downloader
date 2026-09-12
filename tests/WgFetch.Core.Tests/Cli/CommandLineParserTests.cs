@@ -87,6 +87,8 @@ public sealed class CommandLineParserTests
 
         Assert.False(canonical.HasErrors);
         Assert.False(legacy.HasErrors);
+        Assert.False(both.HasErrors);
+        Assert.False(bothReversed.HasErrors);
         Assert.Equal(root, RunSettings.Resolve(canonical, new WgFetchConfig()).ModelsRoot);
         Assert.Equal(alias, RunSettings.Resolve(legacy, new WgFetchConfig()).ModelsRoot);
         Assert.Equal(root, RunSettings.Resolve(both, new WgFetchConfig()).ModelsRoot);
