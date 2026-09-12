@@ -2,7 +2,7 @@ using YamlDotNet.Core;
 
 namespace WgFetch.Core.Targets;
 
-/// <summary>Indicates that a <c>targets.yaml</c> document could not be parsed.</summary>
+/// <summary>Indicates that a <c>targets.yaml</c> document could not be parsed or validated.</summary>
 public sealed class TargetsFileException : Exception
 {
     /// <summary>Initializes a parse or validation error for an optional source <paramref name="path"/>.</summary>

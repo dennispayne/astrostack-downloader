@@ -233,6 +233,7 @@ public class TargetsFileTests
     [InlineData("version: nope")]
     [InlineData("targets:\n  - name: nina\n    state: typo")]
     [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp")]
+    [InlineData("? [invalid]\n: value")]
     public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml)
     {
         string path = Path.Combine(AppContext.BaseDirectory, $"invalid-{Guid.NewGuid():N}.yaml");
