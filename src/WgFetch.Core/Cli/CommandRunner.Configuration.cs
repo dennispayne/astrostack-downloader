@@ -123,8 +123,9 @@ public sealed partial class CommandRunner
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {
+            var display = Logging.SecretRedactor.Redact(candidate, config.Secrets);
             console.MarkupLine(
-                $"[red]The persisted modelsRoot is invalid:[/] {Markup.Escape(candidate)}. " +
+                $"[red]The persisted modelsRoot is invalid:[/] {Markup.Escape(display)}. " +
                 "Edit or unset the 'modelsRoot' setting to continue.");
             modelsRoot = string.Empty;
             return false;
@@ -144,7 +145,8 @@ public sealed partial class CommandRunner
 
         var models = _dependencies.PrereqModels ?? PinnedModels.All;
         var statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
-        var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRoot)})");
+        var modelsRootDisplay = Logging.SecretRedactor.Redact(modelsRoot, config.Secrets);
+        var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRootDisplay)})");
         table.AddColumn("Model");
         table.AddColumn("Status");
         foreach (var model in statuses)

@@ -120,6 +120,14 @@ public sealed record WgFetchConfig
             return Logging.SecretRedactor.Redact(redacted);
         }
 
+        // Endpoints are URLs that may carry a configured credential as a query value or userinfo,
+        // percent- or form-encoded (+ for space) differently than Uri.EscapeDataString would produce
+        // above; decode and compare query values before falling back to the generic string redaction.
+        string? RedactEndpoint(string? value) =>
+            value is not null && Uri.TryCreate(value, UriKind.Absolute, out var uri) && !uri.IsFile
+                ? Logging.SecretRedactor.RedactUrl(value, secrets)
+                : Redact(value);
+
         return this with
         {
             OutputDirectory = Redact(OutputDirectory),
@@ -128,11 +136,11 @@ public sealed record WgFetchConfig
             Architecture = Redact(Architecture),
             Scope = Redact(Scope),
             AiMode = Redact(AiMode),
-            AiEndpoint = Redact(AiEndpoint),
+            AiEndpoint = RedactEndpoint(AiEndpoint),
             AiModel = Redact(AiModel),
             AiKey = string.IsNullOrEmpty(AiKey) ? AiKey : Logging.SecretRedactor.Placeholder,
             SearchProvider = Redact(SearchProvider),
-            SearchEndpoint = Redact(SearchEndpoint),
+            SearchEndpoint = RedactEndpoint(SearchEndpoint),
             SearchKey = string.IsNullOrEmpty(SearchKey) ? SearchKey : Logging.SecretRedactor.Placeholder,
             GithubToken = string.IsNullOrEmpty(GithubToken) ? GithubToken : Logging.SecretRedactor.Placeholder,
             LogLevel = Redact(LogLevel),

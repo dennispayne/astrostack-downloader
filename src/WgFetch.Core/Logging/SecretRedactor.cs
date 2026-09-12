@@ -76,15 +76,33 @@ public static partial class SecretRedactor
         return RedactUrl(uri.ToString());
     }
 
-    public static string RedactUrl(string url)
+    public static string RedactUrl(string url) => RedactUrl(url, knownSecrets: null);
+
+    /// <summary>
+    /// Strips credentials and sensitive query parameters from a URL, additionally redacting any
+    /// query-string value that decodes (percent- or form-encoding, i.e. <c>+</c> for space) to one of
+    /// <paramref name="knownSecrets"/>. A configured credential embedded in an endpoint URL must never
+    /// survive redaction merely because it was encoded differently than <see cref="Uri.EscapeDataString"/>
+    /// would produce (docs/REQUIREMENTS.md, "Privacy").
+    /// </summary>
+    public static string RedactUrl(string url, IEnumerable<string>? knownSecrets)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.IsFile)
         {
             return url;
         }
 
+        var secrets = (knownSecrets ?? [])
+            .Where(secret => !string.IsNullOrEmpty(secret))
+            .ToArray();
+
         var builder = new UriBuilder(uri);
         if (!string.IsNullOrEmpty(builder.UserName) || !string.IsNullOrEmpty(builder.Password))
+        {
+            builder.UserName = Placeholder;
+            builder.Password = string.Empty;
+        }
+        else if (secrets.Length > 0 && (ContainsSecret(builder.UserName, secrets) || ContainsSecret(builder.Password, secrets)))
         {
             builder.UserName = Placeholder;
             builder.Password = string.Empty;
@@ -102,10 +120,12 @@ public static partial class SecretRedactor
                     continue;
                 }
 
-                var name = Uri.UnescapeDataString(parts[i][..eq]);
-                if (SensitiveQueryKeys.Contains(name))
+                var rawName = parts[i][..eq];
+                var rawValue = parts[i][(eq + 1)..];
+                var name = Uri.UnescapeDataString(rawName);
+                if (SensitiveQueryKeys.Contains(name) || ContainsSecret(DecodeQueryComponent(rawValue), secrets))
                 {
-                    parts[i] = parts[i][..eq] + "=" + Placeholder;
+                    parts[i] = rawName + "=" + Placeholder;
                 }
             }
 
@@ -115,7 +135,40 @@ public static partial class SecretRedactor
         var result = builder.Uri.ToString();
 
         // UriBuilder percent-encodes the placeholder inside userinfo; normalise it back for readability.
-        return result.Replace("%5BREDACTED%5D", Placeholder, StringComparison.OrdinalIgnoreCase);
+        result = result.Replace("%5BREDACTED%5D", Placeholder, StringComparison.OrdinalIgnoreCase);
+        return secrets.Length == 0 ? result : Redact(result, secrets);
+    }
+
+    /// <summary>Decodes a query-string component using both percent-encoding and form-encoding (<c>+</c> for space).</summary>
+    private static string DecodeQueryComponent(string rawValue)
+    {
+        var withSpaces = rawValue.Replace('+', ' ');
+        try
+        {
+            return Uri.UnescapeDataString(withSpaces);
+        }
+        catch (FormatException)
+        {
+            return withSpaces;
+        }
+    }
+
+    private static bool ContainsSecret(string? value, IReadOnlyCollection<string> secrets)
+    {
+        if (string.IsNullOrEmpty(value) || secrets.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var secret in secrets)
+        {
+            if (value.Contains(secret, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string RedactUrlsInText(string text)
