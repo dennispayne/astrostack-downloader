@@ -11,8 +11,7 @@ internal static class FileLockContention
     private const int WindowsLockViolation = unchecked((int)0x80070021);
 
     // On Unix an exclusive open that loses the advisory lock surfaces the native errno as HResult.
-    // EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on macOS; EBUSY is 16 on both, and the remaining
-    // value is EDEADLK, which is likewise a lock-ownership condition rather than a hard failure.
+    // EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on macOS, and EBUSY is 16 on both.
     private static readonly int[] UnixContentionErrnos = [11, 16, 35];
 
     /// <summary>

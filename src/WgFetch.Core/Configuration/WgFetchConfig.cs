@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using WgFetch.Core.Abstractions;
 
 namespace WgFetch.Core.Configuration;
 
@@ -244,7 +245,7 @@ public static class ConfigFile
                     bufferSize: 1,
                     FileOptions.Asynchronous);
             }
-            catch (IOException exception) when (Abstractions.FileLockContention.IsContention(exception))
+            catch (IOException exception) when (FileLockContention.IsContention(exception))
             {
                 await Task.Delay(LockRetryDelay, cancellationToken).ConfigureAwait(false);
             }

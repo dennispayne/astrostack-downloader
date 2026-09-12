@@ -37,6 +37,32 @@ public sealed class FileLockContentionTests
     }
 
     [Fact]
+    public void Windows_sharing_and_lock_violations_are_contention()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Assert.True(FileLockContention.IsContention(new IOException("sharing") { HResult = unchecked((int)0x80070020) }));
+        Assert.True(FileLockContention.IsContention(new IOException("lock") { HResult = unchecked((int)0x80070021) }));
+        Assert.False(FileLockContention.IsContention(new IOException("disk full") { HResult = unchecked((int)0x80070070) }));
+    }
+
+    [Fact]
+    public void Unix_lock_errnos_are_contention()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Assert.True(FileLockContention.IsContention(new IOException("would block") { HResult = 11 }));
+        Assert.True(FileLockContention.IsContention(new IOException("busy") { HResult = 16 }));
+        Assert.False(FileLockContention.IsContention(new IOException("no space") { HResult = 28 }));
+    }
+
+    [Fact]
     public void A_missing_directory_open_is_not_contention()
     {
         using var temp = new TempDirectory();
