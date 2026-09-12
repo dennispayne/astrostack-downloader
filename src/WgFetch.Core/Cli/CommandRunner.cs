@@ -82,7 +82,9 @@ public sealed partial class CommandRunner
 
         try
         {
-            if (parsed.NoCommandGiven && parsed.Errors.All(error => error == "no command given"))
+            if (parsed.NoCommandGiven &&
+                parsed.Positional.Count == 0 &&
+                parsed.Errors.All(error => error == "no command given"))
             {
                 return await ShowLandingAsync(parsed, cancellationToken).ConfigureAwait(false);
             }

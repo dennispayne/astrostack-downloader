@@ -60,7 +60,7 @@ public static class TargetsFile
 
         foreach (KeyValuePair<YamlNode, YamlNode> child in root.Children)
         {
-            string key = ((YamlScalarNode)child.Key).Value ?? string.Empty;
+            string key = ScalarKey(child.Key);
 
             if (key == VersionKey && child.Value is YamlScalarNode versionScalar)
             {
@@ -105,7 +105,7 @@ public static class TargetsFile
 
         foreach (KeyValuePair<YamlNode, YamlNode> child in mapping.Children)
         {
-            string key = ((YamlScalarNode)child.Key).Value ?? string.Empty;
+            string key = ScalarKey(child.Key);
             YamlNode value = child.Value;
 
             switch (key)
@@ -191,6 +191,11 @@ public static class TargetsFile
             ExtraFields = extras,
         };
     }
+
+    private static string ScalarKey(YamlNode key) =>
+        key is YamlScalarNode scalar
+            ? scalar.Value ?? string.Empty
+            : throw new FormatException("targets.yaml mapping keys must be scalar.");
 
     private static string? ScalarOrNull(YamlNode node)
     {

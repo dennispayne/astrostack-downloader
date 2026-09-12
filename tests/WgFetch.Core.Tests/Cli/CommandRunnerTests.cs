@@ -188,10 +188,54 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task NoCommand_WithPositionalAfterOptionTerminator_ShowsExistingUsageErrorOnly()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--", "stray"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Empty(stdout.ToString());
+        Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoCommand_MalformedTargets_ShowsLandingAndUsageError()
     {
         using var temp = new TempDirectory();
         await File.WriteAllTextAsync(Path.Combine(temp.Path, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_SchemaInvalidTargets_ShowsLandingAndUsageError()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(
+            Path.Combine(temp.Path, "targets.yaml"),
+            """
+            ? [invalid]
+            : value
+            targets: []
+            """,
+            CancellationToken.None);
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         var runner = new CommandRunner(stdout, stderr, new RunnerDependencies

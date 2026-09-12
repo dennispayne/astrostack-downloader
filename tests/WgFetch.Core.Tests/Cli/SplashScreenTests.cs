@@ -48,6 +48,24 @@ public sealed class SplashScreenTests
     }
 
     [Fact]
+    public void Plain_EmptyTargets_ShowsStatusWithoutThrowing()
+    {
+        var output = new StringWriter();
+
+        SplashScreen.WritePlain(
+            output,
+            new TargetsDocument(),
+            "/source",
+            prerequisitesInstalled: false,
+            now: new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero));
+
+        Assert.Contains("Targets acquired", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("·  0", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Last fetch", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("never", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Interactive_UsesGradientColorsAndRoundedBorder()
     {
         var output = new StringWriter();

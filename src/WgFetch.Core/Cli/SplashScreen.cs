@@ -33,9 +33,9 @@ public static class SplashScreen
     {
         var art = new Markup(
             "[#67e8f9]·[/]       [#6366f1]⋆[/]       [#67e8f9]·[/]          [#6366f1]✦[/]\n" +
-            " [#6366f1]✦[/]      [#67e8f9]·[/]              [#67e8f9]/\\[/]\n" +
-            "         [#67e8f9]⋆[/]             [#67e8f9]/  \\[/]       [#6366f1]⋆[/]\n" +
-            "                    [#67e8f9]o======/    \\[/]\n" +
+            " [#6366f1]✦[/]      [#67e8f9]·[/]              [#67e8f9]/[/]\\\n" +
+            "         [#67e8f9]⋆[/]             [#67e8f9]/  [/]\\       [#6366f1]⋆[/]\n" +
+            "                    [#67e8f9]o======/    [/]\\\n" +
             "                           [#67e8f9](___)[/]\n" +
             "[#6366f1]██╗    ██╗ ██████╗ ███████╗███████╗████████╗ ██████╗██╗[/]\n" +
             "[#6366f1]██║    ██║██╔════╝ ██╔════╝██╔════╝╚══██╔══╝██╔════╝██║[/]\n" +
@@ -71,6 +71,8 @@ public static class SplashScreen
         var acquired = targets.Targets.Count(target => target.State == TargetState.Acquired);
         DateTimeOffset? lastFetch = targets.Targets
             .Select(target => target.LastAttempt)
+            .Where(lastAttempt => lastAttempt.HasValue)
+            .DefaultIfEmpty(null)
             .Max();
 
         writer.WriteLine($"{"Targets acquired",-18} ·  {acquired,-7} {"Prereqs",-10} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");

@@ -41,24 +41,61 @@ public sealed class AotSmokeTests
         return (process.ExitCode, stdout, stderr);
     }
 
-    private static async Task<int> RunAttachedToConsoleAsync(params string[] args)
+    private static async Task<(int ExitCode, string Output)?> RunAttachedToPseudoTerminalAsync()
     {
-        var info = new ProcessStartInfo(BinaryPath!)
+        if (!OperatingSystem.IsLinux())
         {
+            return null;
+        }
+
+        var script = FindExecutable("script");
+        if (script is null)
+        {
+            return null;
+        }
+
+        var info = new ProcessStartInfo(script)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
             UseShellExecute = false,
         };
         info.Environment.Remove("CI");
         info.Environment.Remove("NO_COLOR");
-
-        foreach (var arg in args)
-        {
-            info.ArgumentList.Add(arg);
-        }
+        info.Environment["TERM"] = "xterm-256color";
+        info.ArgumentList.Add("-q");
+        info.ArgumentList.Add("-e");
+        info.ArgumentList.Add("-c");
+        info.ArgumentList.Add(ShellQuote(BinaryPath!));
+        info.ArgumentList.Add("/dev/null");
 
         using var process = Process.Start(info)!;
+        var stdout = await process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stderr = await process.StandardError.ReadToEndAsync(CancellationToken.None);
         await process.WaitForExitAsync(CancellationToken.None);
-        return process.ExitCode;
+        return (process.ExitCode, stdout + stderr);
     }
+
+    private static string? FindExecutable(string name)
+    {
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator))
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                continue;
+            }
+
+            var candidate = Path.Combine(directory, name);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static string ShellQuote(string value) => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
 
     [Fact]
     public async Task PublishedBinary_PrintsHelp()
@@ -105,14 +142,22 @@ public sealed class AotSmokeTests
     [Fact]
     public async Task PublishedBinary_ExecutesInteractiveLandingWhenAttachedToConsole()
     {
-        if (!HasBinary || Console.IsOutputRedirected)
+        if (!HasBinary)
         {
             return;
         }
 
-        var exit = await RunAttachedToConsoleAsync();
+        var result = await RunAttachedToPseudoTerminalAsync();
+        if (result is null)
+        {
+            return;
+        }
 
-        Assert.Equal((int)ExitCode.UsageError, exit);
+        Assert.True(
+            result.Value.ExitCode == (int)ExitCode.UsageError,
+            $"exit={result.Value.ExitCode} output={result.Value.Output}");
+        Assert.Contains("resolve  •  verify  •  download", result.Value.Output, StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", result.Value.Output, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -98,6 +98,34 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public void Parse_NonScalarTopLevelKey_FailsClosedWithFormatException()
+    {
+        const string yaml = """
+            ? [invalid]
+            : value
+            targets: []
+            """;
+
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+        Assert.Contains("mapping keys must be scalar", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_NonScalarEntryKey_FailsClosedWithFormatException()
+    {
+        const string yaml = """
+            version: 1
+            targets:
+              - name: nina
+                ? [invalid]
+                : value
+            """;
+
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+        Assert.Contains("mapping keys must be scalar", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Add_IsIdempotent_AndCaseInsensitive()
     {
         var doc = new TargetsDocument();
