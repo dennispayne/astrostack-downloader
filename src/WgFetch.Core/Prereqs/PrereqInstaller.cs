@@ -91,7 +91,10 @@ public sealed class PrereqInstaller
         _models = models ?? PinnedModels.All;
     }
 
-    internal static async Task<IDisposable> AcquireManifestLockAsync(string manifestPath, CancellationToken cancellationToken)
+    internal static async Task<IDisposable> AcquireManifestLockAsync(
+        string manifestPath,
+        CancellationToken cancellationToken,
+        Action? afterWaitRegistered = null)
     {
         var key = NormalizeManifestKey(manifestPath);
         RefCountedLock entry;
@@ -103,21 +106,30 @@ public sealed class PrereqInstaller
                 static (_, existing) => { existing.RefCount++; return existing; });
         }
 
+        var lockAcquired = false;
         try
         {
-            await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var wait = entry.Semaphore.WaitAsync(cancellationToken);
+            afterWaitRegistered?.Invoke();
+            await wait.ConfigureAwait(false);
+            lockAcquired = true;
             return new ManifestLockScope(key, entry);
         }
         catch
         {
-            ReleaseManifestLockReference(key, entry, releaseSemaphore: false);
+            ReleaseManifestLockReference(key, entry, releaseSemaphore: lockAcquired);
             throw;
         }
     }
 
-    internal static bool HasManifestLock(string manifestPath) =>
+    internal static bool IsManifestLockTracked(string manifestPath) =>
         ManifestLocks.ContainsKey(NormalizeManifestKey(manifestPath));
 
+    /// <summary>
+    /// Releases an acquired semaphore permit when <paramref name="releaseSemaphore"/> is true, then
+    /// releases the caller's reference. Canceled waiters pass false because they never acquired a
+    /// permit; the final reference disposes the semaphore only after all holders and waiters are gone.
+    /// </summary>
     private static void ReleaseManifestLockReference(string key, RefCountedLock entry, bool releaseSemaphore)
     {
         lock (ManifestLocks)

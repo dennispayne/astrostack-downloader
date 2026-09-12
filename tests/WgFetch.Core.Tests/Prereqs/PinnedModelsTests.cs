@@ -301,13 +301,18 @@ public sealed class PinnedModelsTests
         var manifestPath = temp.Combine("install-manifest.json");
         var held = await PrereqInstaller.AcquireManifestLockAsync(manifestPath, CancellationToken.None);
         using var cancellation = new CancellationTokenSource();
-        var waiting = PrereqInstaller.AcquireManifestLockAsync(manifestPath, cancellation.Token);
+        var waitRegistered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var waiting = PrereqInstaller.AcquireManifestLockAsync(
+            manifestPath,
+            cancellation.Token,
+            () => waitRegistered.SetResult());
+        await waitRegistered.Task;
         cancellation.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
         held.Dispose();
 
-        Assert.False(PrereqInstaller.HasManifestLock(manifestPath));
+        Assert.False(PrereqInstaller.IsManifestLockTracked(manifestPath));
     }
 
     private static PinnedModel TestModel(string id, string url, byte[] bytes) =>
