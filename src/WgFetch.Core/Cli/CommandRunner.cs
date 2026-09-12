@@ -199,24 +199,7 @@ public sealed partial class CommandRunner
             return ExitCode.UsageError;
         }
 
-        var terminal = TerminalCapability.Detect(BuildLandingHeaderEnvironment(parsed));
-        IAnsiConsole? console = null;
-        if (terminal == TerminalMode.Interactive)
-        {
-            console = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.Yes,
-                ColorSystem = ColorSystemSupport.TrueColor,
-                Out = new AnsiConsoleOutput(_stdout),
-            });
-            console.Write(SplashScreen.CreateInteractiveHeader());
-            console.WriteLine(string.Empty);
-        }
-        else
-        {
-            SplashScreen.WritePlainHeader(_stdout);
-        }
-
+        _stdout.WriteLine("wgfetch");
         _stdout.Flush();
 
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
@@ -224,6 +207,7 @@ public sealed partial class CommandRunner
         {
             return ExitCode.UsageError;
         }
+        var terminal = TerminalCapability.Detect(BuildTerminalEnvironment(settings));
         var displayOutputDirectory = SecretRedactor.Redact(settings.OutputDirectory, _activeSecrets);
 
         TargetsDocument? targets = null;
@@ -247,6 +231,23 @@ public sealed partial class CommandRunner
             // report a single stable message instead of leaking parser detail into cosmetic output.
             targetsError = "unable to read targets.yaml";
             _stderr.WriteLine($"wgfetch: {targetsError}.");
+        }
+
+        IAnsiConsole? console = null;
+        if (terminal == TerminalMode.Interactive)
+        {
+            console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Ansi = AnsiSupport.Yes,
+                ColorSystem = ColorSystemSupport.TrueColor,
+                Out = new AnsiConsoleOutput(_stdout),
+            });
+            console.Write(SplashScreen.CreateInteractiveHeader());
+            console.WriteLine(string.Empty);
+        }
+        else
+        {
+            SplashScreen.WritePlainHeader(_stdout, includeTitle: false);
         }
 
         // The landing view is cosmetic and must stay fast, so readiness uses the hashing-free presence
@@ -288,42 +289,6 @@ public sealed partial class CommandRunner
     /// </summary>
     private bool IsOutputRedirected() =>
         _dependencies.TerminalEnvironment?.OutputRedirected ?? Console.IsOutputRedirected;
-
-    private TerminalEnvironment BuildLandingHeaderEnvironment(ParsedCommandLine parsed)
-    {
-        var plainRequested = parsed.Has("--plain");
-        var noColorRequested = parsed.Has("--no-color");
-        var jsonRequested = parsed.Has("--json");
-        if (_dependencies.TerminalEnvironment is { } environment)
-        {
-            return environment with
-            {
-                PlainRequested = plainRequested,
-                NoColorRequested = noColorRequested,
-                JsonRequested = jsonRequested,
-            };
-        }
-
-        if (_dependencies.Environment is null)
-        {
-            return TerminalEnvironment.FromProcess(plainRequested, noColorRequested, jsonRequested);
-        }
-
-        string? Lookup(string name) =>
-            _dependencies.Environment.TryGetValue(name, out var value) ? value : null;
-
-        return new TerminalEnvironment
-        {
-            OutputRedirected = Console.IsOutputRedirected,
-            ErrorRedirected = Console.IsErrorRedirected,
-            Term = Lookup("TERM"),
-            NoColorSet = !string.IsNullOrEmpty(Lookup("NO_COLOR")),
-            CiSet = !string.IsNullOrEmpty(Lookup("CI")),
-            PlainRequested = plainRequested,
-            NoColorRequested = noColorRequested,
-            JsonRequested = jsonRequested,
-        };
-    }
 
     private void WriteUsageErrors(ParsedCommandLine parsed)
     {

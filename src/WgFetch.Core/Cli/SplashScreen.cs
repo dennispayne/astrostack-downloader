@@ -36,9 +36,13 @@ public static class SplashScreen
             CreateStatus(targets, outputDirectory, prerequisitesPresent, now ?? DateTimeOffset.UtcNow, targetsError));
     }
 
-    internal static void WritePlainHeader(TextWriter writer)
+    internal static void WritePlainHeader(TextWriter writer, bool includeTitle = true)
     {
-        writer.WriteLine("wgfetch");
+        if (includeTitle)
+        {
+            writer.WriteLine("wgfetch");
+        }
+
         writer.WriteLine("resolve • verify • download");
         writer.WriteLine();
     }
