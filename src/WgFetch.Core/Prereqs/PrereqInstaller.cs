@@ -90,6 +90,7 @@ public sealed class PrereqInstaller
         CancellationToken cancellationToken)
         => await StatusForModelsAsync(modelsRoot, PinnedModels.All, cancellationToken).ConfigureAwait(false);
 
+    /// <summary>Reports status for a scoped model catalog so install results reflect injected models.</summary>
     private static async Task<IReadOnlyList<PrereqModelStatus>> StatusForModelsAsync(
         string modelsRoot,
         IReadOnlyList<PinnedModel> models,

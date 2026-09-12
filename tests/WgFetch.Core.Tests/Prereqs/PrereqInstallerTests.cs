@@ -43,6 +43,22 @@ public sealed class PrereqInstallerTests
     }
 
     [Fact]
+    public async Task Install_reports_only_the_injected_model_catalog()
+    {
+        var first = PinnedModels.Embedding with { Id = "first-custom-model" };
+        var second = PinnedModels.LanguageModel with { Id = "second-custom-model" };
+        using var directory = new TempDirectory();
+
+        var result = await new PrereqInstaller(new StubHttpGateway(), models: [first, second]).InstallAsync(
+            directory.Path,
+            includeLanguageModel: false,
+            dryRun: true,
+            CancellationToken.None);
+
+        Assert.Equal([first.Id, second.Id], result.Models.Select(status => status.ModelId));
+    }
+
+    [Fact]
     public async Task Install_follows_an_allowlisted_hugging_face_cdn_redirect_before_downloading()
     {
         var asset = PinnedModels.Embedding.Assets[0];
