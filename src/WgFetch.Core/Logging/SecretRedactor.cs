@@ -11,6 +11,11 @@ public static partial class SecretRedactor
 {
     public const string Placeholder = "[REDACTED]";
 
+    // Parameter/header names are short in practice; stack-allocate the scratch buffer up to this
+    // length and fall back to the heap only for the rare longer name, avoiding an allocation on the
+    // common path without risking stack overflow for adversarial input.
+    private const int MaxStackAllocParameterNameLength = 64;
+
     // Stored in normalized form (lower-case, separators removed) so every spelling of a key —
     // "api-key", "api_key", "X-Api-Key" — matches a single entry (see NormalizeParameterName).
     private static readonly HashSet<string> SensitiveQueryKeys = new(StringComparer.Ordinal)
@@ -152,15 +157,13 @@ public static partial class SecretRedactor
                 builder.Path = RedactKnownSecrets(decodedPath, secrets);
             }
 
-            var escapedFragment = uri.GetComponents(UriComponents.Fragment, UriFormat.UriEscaped);
-            var decodedFragment = DecodeUriComponent(escapedFragment);
-            if (ContainsSecret(decodedFragment, secrets))
+            var currentFragment = DecodeUriComponent(builder.Fragment.TrimStart('#'));
+            if (ContainsSecret(currentFragment, secrets))
             {
                 // Apply the known-secret replacement to the fragment already redacted above (not the
                 // raw original fragment), otherwise this pass would discard the sensitive-parameter
                 // redaction performed for "#access_token=..." style fragments.
-                var currentFragment = builder.Fragment.TrimStart('#');
-                builder.Fragment = RedactKnownSecrets(DecodeUriComponent(currentFragment), secrets);
+                builder.Fragment = RedactKnownSecrets(currentFragment, secrets);
             }
         }
 
@@ -261,7 +264,7 @@ public static partial class SecretRedactor
     /// </summary>
     private static bool HasWordBoundaryBeforeSuffix(string originalName, int suffixLength)
     {
-        Span<int> keptIndices = originalName.Length <= 64 ? stackalloc int[originalName.Length] : new int[originalName.Length];
+        Span<int> keptIndices = originalName.Length <= MaxStackAllocParameterNameLength ? stackalloc int[originalName.Length] : new int[originalName.Length];
         var keptCount = 0;
         for (var i = 0; i < originalName.Length; i++)
         {
@@ -297,7 +300,7 @@ public static partial class SecretRedactor
     /// </summary>
     private static string NormalizeParameterName(string name)
     {
-        Span<char> buffer = name.Length <= 64 ? stackalloc char[name.Length] : new char[name.Length];
+        Span<char> buffer = name.Length <= MaxStackAllocParameterNameLength ? stackalloc char[name.Length] : new char[name.Length];
         var length = 0;
         foreach (var character in name)
         {
