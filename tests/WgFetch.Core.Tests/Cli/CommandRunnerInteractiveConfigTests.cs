@@ -139,6 +139,25 @@ public sealed class CommandRunnerInteractiveConfigTests
     }
 
     [Fact]
+    public async Task Interactive_prerequisites_menu_shows_progress_while_scanning_model_status()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = temp.Combine("models") }, configPath, CancellationToken.None);
+        var model = TestModel("demo-model", "https://models.example/demo.bin", "bytes"u8.ToArray());
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, 3); // Back.
+        SelectByIndex(console, ExitIndex);
+        var (runner, _, _) = CreateInteractiveRunner(console, models: [model]);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("Checking pinned model files", console.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_real_tty_running_in_plain_render_mode_is_still_treated_as_interactive()
     {
         using var temp = new TempDirectory();

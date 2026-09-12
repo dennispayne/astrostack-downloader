@@ -46,26 +46,26 @@ public static partial class SecretRedactor
         }
 
         var result = text;
+        var secrets = (knownSecrets ?? [])
+            .Where(secret => !string.IsNullOrWhiteSpace(secret))
+            .ToArray();
 
-        if (knownSecrets is not null)
+        if (secrets.Length > 0)
         {
-            foreach (var secret in knownSecrets)
+            foreach (var secret in secrets)
             {
                 // No minimum length here: a configured credential must never appear in output even
                 // when it is short, which can occasionally over-redact an unrelated short substring
                 // that happens to match it (docs/REQUIREMENTS.md, "Privacy").
-                if (!string.IsNullOrWhiteSpace(secret))
-                {
-                    result = result.Replace(secret, Placeholder, StringComparison.Ordinal);
-                    result = result.Replace(Uri.EscapeDataString(secret), Placeholder, StringComparison.Ordinal);
-                }
+                result = result.Replace(secret, Placeholder, StringComparison.Ordinal);
+                result = result.Replace(Uri.EscapeDataString(secret), Placeholder, StringComparison.Ordinal);
             }
         }
 
         result = GitHubTokenPattern().Replace(result, Placeholder);
         result = OpenAiKeyPattern().Replace(result, Placeholder);
         result = BearerPattern().Replace(result, $"$1 {Placeholder}");
-        result = RedactUrlsInText(result);
+        result = RedactUrlsInText(result, secrets);
         return result;
     }
 
@@ -102,11 +102,6 @@ public static partial class SecretRedactor
             builder.UserName = Placeholder;
             builder.Password = string.Empty;
         }
-        else if (secrets.Length > 0 && (ContainsSecret(builder.UserName, secrets) || ContainsSecret(builder.Password, secrets)))
-        {
-            builder.UserName = Placeholder;
-            builder.Password = string.Empty;
-        }
 
         var query = uri.Query;
         if (query.Length > 1)
@@ -117,6 +112,11 @@ public static partial class SecretRedactor
                 var eq = parts[i].IndexOf('=');
                 if (eq <= 0)
                 {
+                    if (eq < 0 && ContainsSecret(DecodeQueryComponent(parts[i]), secrets))
+                    {
+                        parts[i] = Placeholder;
+                    }
+
                     continue;
                 }
 
@@ -132,11 +132,28 @@ public static partial class SecretRedactor
             builder.Query = string.Join('&', parts);
         }
 
+        if (secrets.Length > 0)
+        {
+            var escapedPath = uri.GetComponents(UriComponents.Path, UriFormat.UriEscaped);
+            var decodedPath = DecodeUriComponent(escapedPath);
+            if (ContainsSecret(decodedPath, secrets))
+            {
+                builder.Path = RedactKnownSecrets(decodedPath, secrets);
+            }
+
+            var escapedFragment = uri.GetComponents(UriComponents.Fragment, UriFormat.UriEscaped);
+            var decodedFragment = DecodeUriComponent(escapedFragment);
+            if (ContainsSecret(decodedFragment, secrets))
+            {
+                builder.Fragment = RedactKnownSecrets(decodedFragment, secrets);
+            }
+        }
+
         var result = builder.Uri.ToString();
 
         // UriBuilder percent-encodes the placeholder inside userinfo; normalise it back for readability.
         result = result.Replace("%5BREDACTED%5D", Placeholder, StringComparison.OrdinalIgnoreCase);
-        return secrets.Length == 0 ? result : Redact(result, secrets);
+        return secrets.Length == 0 ? result : RedactKnownSecrets(result, secrets);
     }
 
     /// <summary>Decodes a query-string component using both percent-encoding and form-encoding (<c>+</c> for space).</summary>
@@ -151,6 +168,35 @@ public static partial class SecretRedactor
         {
             return withSpaces;
         }
+    }
+
+    private static string DecodeUriComponent(string rawValue)
+    {
+        if (string.IsNullOrEmpty(rawValue))
+        {
+            return rawValue;
+        }
+
+        try
+        {
+            return Uri.UnescapeDataString(rawValue);
+        }
+        catch (FormatException)
+        {
+            return rawValue;
+        }
+    }
+
+    private static string RedactKnownSecrets(string text, IReadOnlyCollection<string> secrets)
+    {
+        var result = text;
+        foreach (var secret in secrets)
+        {
+            result = result.Replace(secret, Placeholder, StringComparison.Ordinal);
+            result = result.Replace(Uri.EscapeDataString(secret), Placeholder, StringComparison.Ordinal);
+        }
+
+        return result;
     }
 
     private static bool ContainsSecret(string? value, IReadOnlyCollection<string> secrets)
@@ -171,12 +217,12 @@ public static partial class SecretRedactor
         return false;
     }
 
-    private static string RedactUrlsInText(string text)
+    private static string RedactUrlsInText(string text, IEnumerable<string>? knownSecrets)
     {
         var result = text;
         foreach (Match match in UrlPattern().Matches(text))
         {
-            var redacted = RedactUrl(match.Value);
+            var redacted = RedactUrl(match.Value, knownSecrets);
             if (!string.Equals(redacted, match.Value, StringComparison.Ordinal))
             {
                 result = result.Replace(match.Value, redacted, StringComparison.Ordinal);

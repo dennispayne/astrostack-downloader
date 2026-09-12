@@ -144,7 +144,13 @@ public sealed partial class CommandRunner
         }
 
         var models = _dependencies.PrereqModels ?? PinnedModels.All;
-        var statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<PrereqModelStatus> statuses = [];
+        await console.Status()
+            .StartAsync("Checking pinned model files...", async _ =>
+            {
+                statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
+            })
+            .ConfigureAwait(false);
         var modelsRootDisplay = Logging.SecretRedactor.Redact(modelsRoot, config.Secrets);
         var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRootDisplay)})");
         table.AddColumn("Model");

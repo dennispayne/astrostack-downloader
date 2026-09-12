@@ -86,6 +86,18 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void Redacts_form_encoded_known_secrets_inside_urls_embedded_in_free_text()
+    {
+        var redacted = SecretRedactor.Redact(
+            "endpoint=https://api.example/v1?custom_token=abc+def",
+            ["abc def"]);
+
+        Assert.DoesNotContain("abc+def", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc def", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Recognises_sensitive_configuration_field_names()
     {
         Assert.True(SecretRedactor.IsSensitiveFieldName("githubToken"));

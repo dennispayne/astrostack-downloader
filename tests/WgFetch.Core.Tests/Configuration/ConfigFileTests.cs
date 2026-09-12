@@ -239,6 +239,23 @@ public sealed class ConfigRedactionTests
     }
 
     [Fact]
+    public void Redacted_scrubs_a_configured_secret_percent_encoded_in_endpoint_path_and_fragment()
+    {
+        const string secret = "abc";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            AiEndpoint = "https://ai.example/v1/%61%62%63#%61%62%63",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("%61%62%63", redacted.AiEndpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Redacted_scrubs_even_a_short_configured_secret_from_every_string_field()
     {
         const string secret = "abc";
