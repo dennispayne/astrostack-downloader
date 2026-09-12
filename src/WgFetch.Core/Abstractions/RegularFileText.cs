@@ -246,6 +246,7 @@ internal static class RegularFileText
         private const uint FileAttributeDirectory = 0x00000010;
         private const uint FileAttributeDevice = 0x00000040;
         private const uint FileAttributeReparsePoint = 0x00000400;
+        private const uint InvalidFileAttributes = 0xFFFFFFFF;
         private const int Win32ErrorFileNotFound = 2;
         private const int Win32ErrorPathNotFound = 3;
         // FILE_INFO_BY_HANDLE_CLASS.FileAttributeTagInfo, which writes FILE_ATTRIBUTE_TAG_INFO.
@@ -326,32 +327,29 @@ internal static class RegularFileText
                 return false;
             }
 
-            var relativeParent = parent[root.Length..];
-            var current = root;
-            foreach (var segment in relativeParent.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            var current = parent;
+            while (!string.IsNullOrEmpty(current) && current != root)
             {
-                if (segment.Length == 0)
+                var attributes = GetFileAttributes(current);
+                if (attributes != InvalidFileAttributes)
                 {
-                    continue;
+                    return (attributes & FileAttributeDirectory) == 0;
                 }
 
-                current = string.IsNullOrEmpty(current)
-                    ? segment
-                    : Path.Combine(current, segment);
-
-                if (File.Exists(current))
-                {
-                    return true;
-                }
-
-                if (!Directory.Exists(current))
+                var error = Marshal.GetLastPInvokeError();
+                if (error is not (Win32ErrorFileNotFound or Win32ErrorPathNotFound))
                 {
                     return false;
                 }
+
+                current = Path.GetDirectoryName(current);
             }
 
             return false;
         }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFileAttributes(string fileName);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct FileAttributeTagInformation
