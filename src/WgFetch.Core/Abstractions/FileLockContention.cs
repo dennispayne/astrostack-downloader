@@ -7,10 +7,11 @@ namespace WgFetch.Core.Abstractions;
 /// </summary>
 internal static class FileLockContention
 {
-    private const int WindowsSharingViolation = unchecked((int)0x80070020);
-    private const int WindowsLockViolation = unchecked((int)0x80070021);
+    // Win32 sharing/lock violations, as surfaced by FileStream on Windows.
+    private const int SharingViolation = unchecked((int)0x80070020);
+    private const int LockViolation = unchecked((int)0x80070021);
 
-    // On Unix an exclusive open that loses the advisory lock surfaces the native errno as HResult.
+    // On Unix an exclusive open that loses the advisory lock surfaces the native errno as HResult:
     // EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on macOS, and EBUSY is 16 on both.
     private static readonly int[] UnixContentionErrnos = [11, 16, 35];
 
@@ -26,11 +27,13 @@ internal static class FileLockContention
             return false;
         }
 
-        if (OperatingSystem.IsWindows())
+        // The Win32-shaped codes are accepted everywhere: a runtime that maps a Unix lock errno onto
+        // them rather than reporting the raw errno must still be treated as contention.
+        if (exception.HResult is SharingViolation or LockViolation)
         {
-            return exception.HResult is WindowsSharingViolation or WindowsLockViolation;
+            return true;
         }
 
-        return Array.IndexOf(UnixContentionErrnos, exception.HResult) >= 0;
+        return !OperatingSystem.IsWindows() && Array.IndexOf(UnixContentionErrnos, exception.HResult) >= 0;
     }
 }
