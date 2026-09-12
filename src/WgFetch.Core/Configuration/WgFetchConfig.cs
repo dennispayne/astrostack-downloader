@@ -214,8 +214,9 @@ public static class ConfigFile
     /// Reads the config for a read-modify-write cycle. Unlike <see cref="LoadAsync"/>, which is
     /// deliberately lenient, only a genuinely missing file yields defaults: an existing file we fail to
     /// read (for example an ACL or sharing failure, which <see cref="File.Exists"/> also reports as
-    /// missing) propagates instead of being replaced by the caller's write, which would otherwise
-    /// silently discard persisted settings and credentials.
+    /// missing) propagates instead of being replaced by the caller's write, and malformed JSON is
+    /// surfaced instead of being collapsed to defaults, either of which would otherwise silently
+    /// discard persisted settings and credentials.
     /// </summary>
     private static async Task<WgFetchConfig> LoadForUpdateAsync(string path, CancellationToken cancellationToken)
     {
@@ -237,9 +238,11 @@ public static class ConfigFile
                     .DeserializeAsync(stream, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
                     .ConfigureAwait(false) ?? new WgFetchConfig();
             }
-            catch (JsonException)
+            catch (JsonException exception)
             {
-                return new WgFetchConfig();
+                throw new InvalidDataException(
+                    "existing config file is malformed; fix or remove it before changing settings.",
+                    exception);
             }
         }
     }

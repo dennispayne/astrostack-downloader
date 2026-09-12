@@ -54,7 +54,8 @@ public sealed class CommandRunnerTests
 
     private static (CommandRunner Runner, StringWriter Out, StringWriter Error) CreateRunner(
         StubHttpGateway? http = null,
-        IEmbeddingModel? embeddings = null)
+        IEmbeddingModel? embeddings = null,
+        IReadOnlyDictionary<string, string?>? environment = null)
     {
         var stdout = new StringWriter();
         var stderr = new StringWriter();
@@ -63,7 +64,7 @@ public sealed class CommandRunnerTests
             Http = http ?? new StubHttpGateway(),
             Embeddings = embeddings,
             TimeProvider = TimeProvider.System,
-            Environment = new Dictionary<string, string?> { ["CI"] = "true" },
+            Environment = environment ?? new Dictionary<string, string?> { ["CI"] = "true" },
         });
 
         return (runner, stdout, stderr);
@@ -398,6 +399,82 @@ public sealed class CommandRunnerTests
         Assert.Equal("outputDirectory", document.RootElement.GetProperty("target").GetString());
         Assert.Contains(temp.Combine("source"), document.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
         Assert.Contains(temp.Combine("source"), stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Config_get_and_list_redact_effective_environment_secrets_in_persisted_values()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        const string envSecret = "environment-only-secret";
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { AiEndpoint = $"https://ai.example/v1/{envSecret}?custom=value" },
+            configPath,
+            CancellationToken.None);
+        var environment = new Dictionary<string, string?>
+        {
+            ["CI"] = "true",
+            ["WGFETCH_AI_KEY"] = envSecret,
+        };
+
+        var (getter, getOut, _) = CreateRunner(environment: environment);
+        Assert.Equal(ExitCode.Success, await getter.RunAsync(
+            ["config", "get", "aiEndpoint", "--config", configPath],
+            CancellationToken.None));
+
+        var (lister, listOut, _) = CreateRunner(environment: environment);
+        Assert.Equal(ExitCode.Success, await lister.RunAsync(["config", "list", "--config", configPath], CancellationToken.None));
+
+        Assert.DoesNotContain(envSecret, getOut.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(envSecret, listOut.ToString(), StringComparison.Ordinal);
+        Assert.Contains("REDACTED", getOut.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("REDACTED", listOut.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Config_json_redacts_effective_environment_secrets_in_machine_events()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        const string envSecret = "environment-only-secret";
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { SearchEndpoint = $"https://search.example/{envSecret}" },
+            configPath,
+            CancellationToken.None);
+        var environment = new Dictionary<string, string?>
+        {
+            ["CI"] = "true",
+            ["WGFETCH_SEARCH_KEY"] = envSecret,
+        };
+        var (runner, stdout, stderr) = CreateRunner(environment: environment);
+
+        var exit = await runner.RunAsync(
+            ["config", "get", "searchEndpoint", "--config", configPath, "--json"],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.DoesNotContain(envSecret, stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(envSecret, stderr.ToString(), StringComparison.Ordinal);
+        using var document = JsonDocument.Parse(Assert.Single(stdout.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)));
+        Assert.Contains("REDACTED", document.RootElement.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Config_set_does_not_overwrite_a_malformed_existing_config()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        const string malformed = "{ this is not json";
+        await File.WriteAllTextAsync(configPath, malformed, CancellationToken.None);
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(
+            ["config", "set", "plain", "true", "--config", configPath],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("malformed", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(malformed, await File.ReadAllTextAsync(configPath, CancellationToken.None));
     }
 
     [Fact]

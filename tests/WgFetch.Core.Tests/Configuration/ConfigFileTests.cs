@@ -35,6 +35,22 @@ public sealed class ConfigFileTests
     }
 
     [Fact]
+    public async Task Updating_a_malformed_file_fails_without_overwriting_it()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+        const string malformed = "{ this is not json";
+        await File.WriteAllTextAsync(path, malformed, CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => ConfigFile.TryUpdateAsync(
+            path,
+            config => config with { Plain = true },
+            CancellationToken.None));
+
+        Assert.Equal(malformed, await File.ReadAllTextAsync(path, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Round_trips_every_field()
     {
         using var temp = new TempDirectory();

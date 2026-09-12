@@ -24,6 +24,7 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> ConfigAsync(
         ParsedCommandLine parsed,
         WgFetchConfig config,
+        IReadOnlyList<string> redactionSecrets,
         bool isInteractiveTerminal,
         bool plainRendering,
         CancellationToken cancellationToken)
@@ -39,6 +40,7 @@ public sealed partial class CommandRunner
             return await InteractiveConfigAsync(
                 config,
                 parsed.Value("--config"),
+                redactionSecrets,
                 isInteractiveTerminal,
                 plainRendering,
                 cancellationToken).ConfigureAwait(false);
@@ -55,7 +57,7 @@ public sealed partial class CommandRunner
                 }
 
                 var rows = new List<string[]> { ConfigTableHeader };
-                var settings = ConfigSettings.GetRedactedValues(config);
+                var settings = ConfigSettings.GetRedactedValues(config, redactionSecrets);
                 rows.AddRange(settings.Select(setting => new[] { setting.Name, setting.Value ?? "-" }));
                 Report(RenderTable(rows));
                 foreach (var setting in settings)
@@ -71,7 +73,7 @@ public sealed partial class CommandRunner
                     return ExitCode.UsageError;
                 }
 
-                var value = ConfigSettings.GetRedactedValue(config, parsed.Positional[0], out var getError);
+                var value = ConfigSettings.GetRedactedValue(config, parsed.Positional[0], out var getError, redactionSecrets);
                 if (getError is not null)
                 {
                     _stderr.WriteLine($"wgfetch config get: {getError}");
@@ -90,19 +92,28 @@ public sealed partial class CommandRunner
                 }
 
                 string? setError = null;
-                var updated = await ConfigFile.TryUpdateAsync(
-                    path,
-                    current =>
-                    {
-                        var success = ConfigSettings.TrySet(
-                            current,
-                            parsed.Positional[0],
-                            parsed.Positional[1],
-                            out var latest,
-                            out setError);
-                        return success ? latest : null;
-                    },
-                    cancellationToken).ConfigureAwait(false);
+                WgFetchConfig? updated;
+                try
+                {
+                    updated = await ConfigFile.TryUpdateAsync(
+                        path,
+                        current =>
+                        {
+                            var success = ConfigSettings.TrySet(
+                                current,
+                                parsed.Positional[0],
+                                parsed.Positional[1],
+                                out var latest,
+                                out setError);
+                            return success ? latest : null;
+                        },
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException exception)
+                {
+                    _stderr.WriteLine($"wgfetch config set: {exception.Message}");
+                    return ExitCode.UsageError;
+                }
                 if (updated is null)
                 {
                     _stderr.WriteLine($"wgfetch config set: {setError}");
@@ -121,18 +132,27 @@ public sealed partial class CommandRunner
                 }
 
                 string? unsetError = null;
-                var without = await ConfigFile.TryUpdateAsync(
-                    path,
-                    current =>
-                    {
-                        var success = ConfigSettings.TryUnset(
-                            current,
-                            parsed.Positional[0],
-                            out var latest,
-                            out unsetError);
-                        return success ? latest : null;
-                    },
-                    cancellationToken).ConfigureAwait(false);
+                WgFetchConfig? without;
+                try
+                {
+                    without = await ConfigFile.TryUpdateAsync(
+                        path,
+                        current =>
+                        {
+                            var success = ConfigSettings.TryUnset(
+                                current,
+                                parsed.Positional[0],
+                                out var latest,
+                                out unsetError);
+                            return success ? latest : null;
+                        },
+                        cancellationToken).ConfigureAwait(false);
+                }
+                catch (InvalidDataException exception)
+                {
+                    _stderr.WriteLine($"wgfetch config unset: {exception.Message}");
+                    return ExitCode.UsageError;
+                }
                 if (without is null)
                 {
                     _stderr.WriteLine($"wgfetch config unset: {unsetError}");

@@ -142,15 +142,16 @@ public sealed partial class CommandRunner
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
         if (parsed.Command == "config")
         {
+            var configSecrets = ResolveConfigSecrets(parsed, config);
             _loggerProvider = new RedactingConsoleLoggerProvider(
                 _stderr,
                 LogLevelParser.Parse(parsed.Value("--log-level") ?? config.LogLevel),
-                config.Secrets);
+                configSecrets);
             _logger = _loggerProvider.CreateLogger("wgfetch");
 
             if (parsed.Has("--json"))
             {
-                _events = new JsonEventWriter(_stdout, config.Secrets, deterministicOrder: true);
+                _events = new JsonEventWriter(_stdout, configSecrets, deterministicOrder: true);
                 _humanToStderr = true;
             }
 
@@ -161,7 +162,13 @@ public sealed partial class CommandRunner
             var isInteractiveTerminal = _dependencies.InteractiveTerminalOverride
                 ?? TerminalCapability.IsInteractiveTerminal(configEnvironment);
             var plainRendering = TerminalCapability.Detect(configEnvironment) == TerminalMode.Plain;
-            return await ConfigAsync(parsed, config, isInteractiveTerminal, plainRendering, cancellationToken).ConfigureAwait(false);
+            return await ConfigAsync(
+                parsed,
+                config,
+                configSecrets,
+                isInteractiveTerminal,
+                plainRendering,
+                cancellationToken).ConfigureAwait(false);
         }
 
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
@@ -213,6 +220,30 @@ public sealed partial class CommandRunner
     /// </summary>
     internal static bool ResolveConfigPlain(bool plainFlag, bool? configPlain) =>
         plainFlag || configPlain == true;
+
+    private IReadOnlyList<string> ResolveConfigSecrets(ParsedCommandLine parsed, WgFetchConfig config)
+    {
+        var secrets = new[] {
+                parsed.Value("--ai-key"),
+                Lookup("WGFETCH_AI_KEY"),
+                config.AiKey,
+                parsed.Value("--search-key"),
+                Lookup("WGFETCH_SEARCH_KEY"),
+                config.SearchKey,
+                parsed.Value("--github-token"),
+                Lookup("GITHUB_TOKEN"),
+                config.GithubToken,
+            }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return secrets;
+
+        string? Lookup(string name) => _dependencies.Environment is null
+            ? Environment.GetEnvironmentVariable(name)
+            : _dependencies.Environment.TryGetValue(name, out var value) ? value : null;
+    }
 
     private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings) =>
         BuildTerminalEnvironment(settings.Plain, settings.NoColor, settings.Json);

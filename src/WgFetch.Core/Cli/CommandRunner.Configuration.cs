@@ -21,6 +21,7 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> InteractiveConfigAsync(
         WgFetchConfig config,
         string? configuredPath,
+        IReadOnlyList<string> redactionSecrets,
         bool isInteractiveTerminal,
         bool plainRendering,
         CancellationToken cancellationToken)
@@ -37,7 +38,7 @@ public sealed partial class CommandRunner
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RenderConfig(console, current);
+            RenderConfig(console, current, redactionSecrets);
             var choice = console.Prompt(
                 new SelectionPrompt<string>()
                     .Title("Select a setting to edit, or manage model prerequisites")
@@ -49,7 +50,7 @@ public sealed partial class CommandRunner
 
             if (choice == ModelPrerequisitesChoice)
             {
-                var prereqExit = await ManagePrerequisitesAsync(console, current, path, cancellationToken).ConfigureAwait(false);
+                var prereqExit = await ManagePrerequisitesAsync(console, current, path, redactionSecrets, cancellationToken).ConfigureAwait(false);
                 if (prereqExit != ExitCode.Success)
                 {
                     return prereqExit;
@@ -79,26 +80,35 @@ public sealed partial class CommandRunner
                 }
                 catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
                 {
-                    var display = Logging.SecretRedactor.Redact(value, current.Secrets);
+                    var display = Logging.SecretRedactor.Redact(value, redactionSecrets);
                     console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(display)}");
                     continue;
                 }
             }
 
             string? updateError = null;
-            var persisted = await ConfigFile.TryUpdateAsync(
-                path,
-                latest =>
-                {
-                    updateError = null;
-                    if (!ConfigSettings.TrySet(latest, choice, value, out var merged, out updateError))
+            WgFetchConfig? persisted;
+            try
+            {
+                persisted = await ConfigFile.TryUpdateAsync(
+                    path,
+                    latest =>
                     {
-                        return null;
-                    }
+                        updateError = null;
+                        if (!ConfigSettings.TrySet(latest, choice, value, out var merged, out updateError))
+                        {
+                            return null;
+                        }
 
-                    return merged;
-                },
-                cancellationToken).ConfigureAwait(false);
+                        return merged;
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception)
+            {
+                console.MarkupLine($"[red]{Markup.Escape(exception.Message)}[/]");
+                continue;
+            }
             if (persisted is null)
             {
                 console.MarkupLine($"[red]{Markup.Escape(updateError ?? $"Failed to save '{choice}'.")}[/]");
@@ -120,12 +130,12 @@ public sealed partial class CommandRunner
             Out = new AnsiConsoleOutput(output),
         });
 
-    private static void RenderConfig(IAnsiConsole console, WgFetchConfig config)
+    private static void RenderConfig(IAnsiConsole console, WgFetchConfig config, IEnumerable<string> redactionSecrets)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("wgfetch configuration");
         table.AddColumn("Setting");
         table.AddColumn("Persisted value");
-        foreach (var setting in ConfigSettings.GetRedactedValues(config))
+        foreach (var setting in ConfigSettings.GetRedactedValues(config, redactionSecrets))
         {
             table.AddRow(setting.Name, setting.Value is null ? "-" : Markup.Escape(setting.Value));
         }
@@ -161,6 +171,7 @@ public sealed partial class CommandRunner
         IAnsiConsole console,
         WgFetchConfig config,
         string configPath,
+        IReadOnlyList<string> redactionSecrets,
         CancellationToken cancellationToken)
     {
         if (!TryResolveModelsRoot(config, console, out var modelsRoot))
@@ -176,7 +187,7 @@ public sealed partial class CommandRunner
                 statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
             })
             .ConfigureAwait(false);
-        var modelsRootDisplay = Logging.SecretRedactor.Redact(modelsRoot, config.Secrets);
+        var modelsRootDisplay = Logging.SecretRedactor.Redact(modelsRoot, redactionSecrets);
         var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRootDisplay)})");
         table.AddColumn("Model");
         table.AddColumn("Status");
@@ -216,25 +227,34 @@ public sealed partial class CommandRunner
             }
             catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                var display = Logging.SecretRedactor.Redact(root, config.Secrets);
+                var display = Logging.SecretRedactor.Redact(root, redactionSecrets);
                 console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(display)}");
                 return ExitCode.Success;
             }
 
             string? updateError = null;
-            var persisted = await ConfigFile.TryUpdateAsync(
-                configPath,
-                latest =>
-                {
-                    updateError = null;
-                    if (!ConfigSettings.TrySet(latest, "modelsRoot", root, out var merged, out updateError))
+            WgFetchConfig? persisted;
+            try
+            {
+                persisted = await ConfigFile.TryUpdateAsync(
+                    configPath,
+                    latest =>
                     {
-                        return null;
-                    }
+                        updateError = null;
+                        if (!ConfigSettings.TrySet(latest, "modelsRoot", root, out var merged, out updateError))
+                        {
+                            return null;
+                        }
 
-                    return merged;
-                },
-                cancellationToken).ConfigureAwait(false);
+                        return merged;
+                    },
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (InvalidDataException exception)
+            {
+                console.MarkupLine($"[red]{Markup.Escape(exception.Message)}[/]");
+                return ExitCode.UsageError;
+            }
             if (persisted is null)
             {
                 console.MarkupLine($"[red]{Markup.Escape(updateError ?? "Failed to save 'modelsRoot'.")}[/]");

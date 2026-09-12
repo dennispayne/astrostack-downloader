@@ -122,15 +122,21 @@ public static class ConfigSettings
         return true;
     }
 
-    public static string? GetRedactedValue(WgFetchConfig config, string name, out string? error)
+    public static string? GetRedactedValue(
+        WgFetchConfig config,
+        string name,
+        out string? error,
+        IEnumerable<string>? supplementalSecrets = null)
     {
-        var redacted = config.Redacted();
+        var redacted = config.Redacted(supplementalSecrets);
         return GetValue(redacted, name, out error);
     }
 
-    public static IReadOnlyList<(string Name, string? Value)> GetRedactedValues(WgFetchConfig config)
+    public static IReadOnlyList<(string Name, string? Value)> GetRedactedValues(
+        WgFetchConfig config,
+        IEnumerable<string>? supplementalSecrets = null)
     {
-        var redacted = config.Redacted();
+        var redacted = config.Redacted(supplementalSecrets);
         return Names.Select(name => (name, GetValue(redacted, name, out _))).ToArray();
     }
 
