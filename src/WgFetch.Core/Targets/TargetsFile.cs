@@ -56,9 +56,11 @@ public static class TargetsFile
             using var reader = new StringReader(yamlText);
             stream.Load(reader);
         }
+        // YamlDotNet's representation-model loader can surface malformed mapping shapes (for example,
+        // duplicate keys) as ArgumentException rather than YamlException.
         catch (Exception ex) when (ex is YamlException or ArgumentException)
         {
-            throw new TargetsFileException(path, ex);
+            throw new TargetsFileException(path, ex, TargetsFileException.InvalidDocumentReasonCode);
         }
 
         try

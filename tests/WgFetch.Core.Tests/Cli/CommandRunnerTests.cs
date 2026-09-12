@@ -276,8 +276,8 @@ public sealed class CommandRunnerTests
     [InlineData(true, "version: nope", "invalid-version")]
     [InlineData(false, "version: 999999999999999999999", "invalid-version")]
     [InlineData(true, "version: 999999999999999999999", "invalid-version")]
-    [InlineData(false, "version: 1\nversion: 2\ntargets: []", null)]
-    [InlineData(true, "version: 1\nversion: 2\ntargets: []", null)]
+    [InlineData(false, "version: 1\nversion: 2\ntargets: []", TargetsFileException.InvalidDocumentReasonCode)]
+    [InlineData(true, "version: 1\nversion: 2\ntargets: []", TargetsFileException.InvalidDocumentReasonCode)]
     public async Task MalformedTargetsYaml_IsCleanUsageError(bool json, string yaml, string? reasonCode)
     {
         using var temp = new TempDirectory();
