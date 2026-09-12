@@ -121,7 +121,9 @@ public sealed class PrereqInstaller
 
     /// <summary>
     /// Hashing-free readiness probe for latency-sensitive, cosmetic paths such as the no-command
-    /// landing view: every pinned asset must exist and, where a size is pinned, match it on disk.
+    /// landing view: every asset must be digest-pinned, exist, and — where a size is pinned — match it
+    /// on disk. An unpinned asset or a model that declares no assets is reported as not ready, exactly
+    /// as the installer refuses unverifiable weights.
     /// Full digest verification stays in <see cref="StatusAsync(string, CancellationToken)"/>, which
     /// <c>prereqs status</c> and <c>verify</c> use — a bare <c>wgfetch</c> must never spend seconds
     /// hashing model files. Unreadable trees report "not ready" rather than throwing.

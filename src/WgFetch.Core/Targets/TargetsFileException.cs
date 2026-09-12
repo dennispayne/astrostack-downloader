@@ -21,12 +21,6 @@ public sealed class TargetsFileException : Exception
     {
     }
 
-    public TargetsFileException(string path, string message, Exception? innerException)
-        : base(message, innerException)
-    {
-        Path = path;
-    }
-
     /// <summary>The offending file, when known.</summary>
-    public string? Path { get; }
+    public string? Path { get; init; }
 }
