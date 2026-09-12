@@ -105,6 +105,24 @@ public sealed class CommandRunnerTests
         Assert.Contains("wgfetch", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--arch", "bogus", "x64, x86, arm64")]
+    [InlineData("--scope", "bogus", "machine, user")]
+    [InlineData("--log-level", "bogus", "trace, debug, info, warn, error, none")]
+    [InlineData("--ai-mode", "bogus", "local, remote, auto")]
+    public async Task Invalid_closed_enum_value_IsAUsageError(string option, string value, string allowed)
+    {
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(["resolve", "demo", option, value, "--dry-run"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains(
+            $"wgfetch: invalid value '{value}' for {option} (expected one of: {allowed})",
+            stderr.ToString(),
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task AddThenStatus_WritesTargetsAndReportsListed()
     {
