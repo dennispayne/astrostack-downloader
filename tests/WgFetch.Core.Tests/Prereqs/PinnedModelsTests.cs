@@ -191,6 +191,47 @@ public sealed class PinnedModelsTests
     }
 
     [Theory]
+    [InlineData("../outside")]
+    [InlineData("../../outside")]
+    public async Task Status_rejects_a_model_id_that_escapes_the_models_root(string maliciousId)
+    {
+        using var temp = new TempDirectory();
+        var model = TestModel(maliciousId, "https://huggingface.co/test/model.bin", "bytes"u8.ToArray());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PrereqInstaller.StatusAsync(temp.Path, [model], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Status_rejects_an_asset_relative_path_that_escapes_the_model_directory()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "bytes"u8.ToArray();
+        var model = new PinnedModel(
+            "escaping-asset", "escaping-asset", "test/repository", "revision", IsLanguageModel: false,
+            [new ModelAsset("../../outside.bin", "https://huggingface.co/test/model.bin", bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PrereqInstaller.StatusAsync(temp.Path, [model], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Install_rejects_a_model_id_that_escapes_the_models_root_before_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = TestModel("../outside", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+    }
+
+    [Theory]
     [InlineData("http://huggingface.co/test/model.bin")]
     [InlineData("https://attacker.example/model.bin")]
     [InlineData("https://evilhuggingface.co/model.bin")]

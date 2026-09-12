@@ -164,7 +164,33 @@ public sealed class PrereqInstaller
     }
 
     public static string ModelDirectory(string modelsRoot, PinnedModel model) =>
-        Path.Combine(modelsRoot, model.Id);
+        ResolveConfinedPath(modelsRoot, model.Id, $"model id '{model.Id}'");
+
+    /// <summary>
+    /// Combines <paramref name="root"/> with <paramref name="relativeSegment"/> and verifies the
+    /// normalized result stays under <paramref name="root"/>. Pinned model data can come from a
+    /// caller-supplied list (see the <see cref="StatusAsync(string, IReadOnlyList{PinnedModel}?, CancellationToken)"/>
+    /// and <see cref="InstallAsync(string, IReadOnlySet{string}, bool, CancellationToken)"/> overloads),
+    /// so a rooted or `..`-bearing id/relative path is rejected before any filesystem operation.
+    /// </summary>
+    private static string ResolveConfinedPath(string root, string relativeSegment, string description)
+    {
+        if (string.IsNullOrEmpty(relativeSegment) || Path.IsPathRooted(relativeSegment))
+        {
+            throw new InvalidOperationException($"Refusing to use {description}: paths must be relative.");
+        }
+
+        var normalizedRoot = Path.GetFullPath(root);
+        var combined = Path.GetFullPath(Path.Combine(normalizedRoot, relativeSegment));
+        var relativeToRoot = Path.GetRelativePath(normalizedRoot, combined);
+        if (relativeToRoot == ".." || relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || Path.IsPathRooted(relativeToRoot))
+        {
+            throw new InvalidOperationException($"Refusing to use {description}: it escapes the models root.");
+        }
+
+        return combined;
+    }
 
     /// <summary>Reports presence, paths, sizes and verification state for every pinned model.</summary>
     public static Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
@@ -185,7 +211,7 @@ public sealed class PrereqInstaller
             var assets = new List<PrereqAssetStatus>();
             foreach (var asset in model.Assets)
             {
-                var path = Path.Combine(directory, asset.RelativePath);
+                var path = ResolveConfinedPath(directory, asset.RelativePath, $"asset relative path '{asset.RelativePath}'");
                 if (!File.Exists(path))
                 {
                     assets.Add(new PrereqAssetStatus(asset.RelativePath, path, PrereqState.Missing, null, null));
@@ -278,7 +304,7 @@ public sealed class PrereqInstaller
             foreach (var asset in model.Assets)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var path = Path.Combine(directory, asset.RelativePath);
+                var path = ResolveConfinedPath(directory, asset.RelativePath, $"asset relative path '{asset.RelativePath}'");
                 if (File.Exists(path))
                 {
                     var existing = await InstallerDownloader.ComputeSha256Async(path, cancellationToken).ConfigureAwait(false);
