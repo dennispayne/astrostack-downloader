@@ -94,11 +94,7 @@ public static class TargetsFile
             doc.ExtraFields = extras;
             return doc;
         }
-        catch (FormatException ex)
-        {
-            throw new TargetsFileException(path, ex);
-        }
-        catch (InvalidCastException ex)
+        catch (Exception ex) when (ex is FormatException or InvalidCastException)
         {
             throw new TargetsFileException(path, ex);
         }
