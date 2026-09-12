@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
 using WgFetch.Core.Prereqs;
 using WgFetch.Core.Tests.Support;
@@ -292,6 +293,38 @@ public sealed class PinnedModelsTests
 
         var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
         Assert.All(models, model => Assert.Contains($"\"id\": \"{model.Id}\"", manifest, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Cancelling_while_waiting_for_a_manifest_lock_releases_its_reference()
+    {
+        using var temp = new TempDirectory();
+        var manifestPath = temp.Combine("install-manifest.json");
+        var acquire = typeof(PrereqInstaller).GetMethod(
+            "AcquireManifestLockAsync",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+        var locks = typeof(PrereqInstaller).GetField(
+            "ManifestLocks",
+            BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var containsKey = locks.GetType().GetMethod("ContainsKey")!;
+        var key = Path.GetFullPath(manifestPath);
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            key = key.ToLowerInvariant();
+        }
+
+        var held = await AcquireAsync(CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        var waiting = AcquireAsync(cancellation.Token);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        held.Dispose();
+
+        Assert.False((bool)containsKey.Invoke(locks, [key])!);
+
+        Task<IDisposable> AcquireAsync(CancellationToken cancellationToken) =>
+            (Task<IDisposable>)acquire.Invoke(null, [manifestPath, cancellationToken])!;
     }
 
     private static PinnedModel TestModel(string id, string url, byte[] bytes) =>

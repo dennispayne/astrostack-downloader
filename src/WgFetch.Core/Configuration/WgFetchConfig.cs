@@ -98,8 +98,8 @@ public sealed record WgFetchConfig
     /// </summary>
     public WgFetchConfig Redacted() => this with
     {
-        AiEndpoint = AiEndpoint is null ? null : Logging.SecretRedactor.Redact(AiEndpoint),
-        SearchEndpoint = SearchEndpoint is null ? null : Logging.SecretRedactor.Redact(SearchEndpoint),
+        AiEndpoint = AiEndpoint is null ? null : Logging.SecretRedactor.Redact(AiEndpoint, Secrets),
+        SearchEndpoint = SearchEndpoint is null ? null : Logging.SecretRedactor.Redact(SearchEndpoint, Secrets),
         AiKey = string.IsNullOrEmpty(AiKey) ? AiKey : Logging.SecretRedactor.Placeholder,
         SearchKey = string.IsNullOrEmpty(SearchKey) ? SearchKey : Logging.SecretRedactor.Placeholder,
         GithubToken = string.IsNullOrEmpty(GithubToken) ? GithubToken : Logging.SecretRedactor.Placeholder,

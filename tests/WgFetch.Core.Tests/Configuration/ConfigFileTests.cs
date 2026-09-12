@@ -134,6 +134,23 @@ public sealed class ConfigRedactionTests
         Assert.DoesNotContain("super-secret-search-key", redacted.SearchEndpoint, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Redacted_scrubs_a_configured_secret_embedded_under_an_unknown_url_key()
+    {
+        var secret = "custom-secret-value";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            AiEndpoint = $"https://ai.example/v1?custom_token={secret}",
+            SearchEndpoint = $"https://search.example/{secret}/v1",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.SearchEndpoint, StringComparison.Ordinal);
+    }
+
     public sealed class ConfigSettingsTests
     {
         [Fact]

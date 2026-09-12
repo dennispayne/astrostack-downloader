@@ -103,8 +103,29 @@ public sealed class PrereqInstaller
                 static (_, existing) => { existing.RefCount++; return existing; });
         }
 
-        await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return new ManifestLockScope(key, entry);
+        try
+        {
+            await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new ManifestLockScope(key, entry);
+        }
+        catch
+        {
+            ReleaseManifestLockReference(key, entry);
+            throw;
+        }
+    }
+
+    private static void ReleaseManifestLockReference(string key, RefCountedLock entry)
+    {
+        lock (ManifestLocks)
+        {
+            entry.RefCount--;
+            if (entry.RefCount == 0)
+            {
+                ManifestLocks.TryRemove(key, out _);
+                entry.Semaphore.Dispose();
+            }
+        }
     }
 
     private sealed class ManifestLockScope(string key, RefCountedLock entry) : IDisposable
@@ -112,14 +133,7 @@ public sealed class PrereqInstaller
         public void Dispose()
         {
             entry.Semaphore.Release();
-            lock (ManifestLocks)
-            {
-                entry.RefCount--;
-                if (entry.RefCount == 0)
-                {
-                    ManifestLocks.TryRemove(key, out _);
-                }
-            }
+            ReleaseManifestLockReference(key, entry);
         }
     }
 
