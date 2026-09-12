@@ -108,7 +108,7 @@ public static partial class SecretRedactor
     /// </summary>
     public static string RedactUrl(string url, IEnumerable<string>? knownSecrets)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        if (IsWindowsDrivePath(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             return url;
         }
@@ -385,6 +385,12 @@ public static partial class SecretRedactor
 
         return false;
     }
+
+    private static bool IsWindowsDrivePath(string value) =>
+        value.Length >= 3 &&
+        char.IsAsciiLetter(value[0]) &&
+        value[1] == ':' &&
+        value[2] is '\\' or '/';
 
     private static string RedactUrlsInText(string text, IEnumerable<string>? knownSecrets)
     {

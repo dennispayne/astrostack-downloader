@@ -116,6 +116,8 @@ public sealed record WgFetchConfig
                 return null;
             }
 
+            // SecretRedactor.Redact runs URL-aware redaction before replacing known secrets and also
+            // matches raw, percent-encoded and form-encoded spellings of those known secrets.
             return Logging.SecretRedactor.Redact(value, secrets);
         }
 

@@ -183,6 +183,14 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void RedactUrl_leaves_windows_drive_paths_untouched()
+    {
+        const string path = @"C:\models\x?y";
+
+        Assert.Equal(path, SecretRedactor.RedactUrl(path));
+    }
+
+    [Fact]
     public void RedactUrl_leaves_a_non_sensitive_fragment_untouched()
     {
         const string url = "https://host.example/docs#installation";

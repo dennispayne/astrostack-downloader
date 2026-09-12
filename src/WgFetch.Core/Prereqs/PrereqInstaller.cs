@@ -236,6 +236,11 @@ public sealed class PrereqInstaller
     private static void RejectReparsePointRoot(string root)
     {
         var normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        if (!Directory.Exists(normalizedRoot) && !File.Exists(normalizedRoot))
+        {
+            return;
+        }
+
         try
         {
             if ((File.GetAttributes(normalizedRoot) & FileAttributes.ReparsePoint) != 0)
@@ -243,13 +248,9 @@ public sealed class PrereqInstaller
                 throw new InvalidOperationException($"Refusing to use models root '{normalizedRoot}': it is a symbolic link or reparse point.");
             }
         }
-        catch (FileNotFoundException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            // A not-yet-existing root cannot itself be a reparse point; child paths are checked later.
-        }
-        catch (DirectoryNotFoundException)
-        {
-            // A not-yet-existing root cannot itself be a reparse point; child paths are checked later.
+            throw new InvalidOperationException($"Unable to verify models root '{normalizedRoot}' before writing prerequisites.", exception);
         }
     }
 
