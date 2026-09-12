@@ -43,7 +43,10 @@ public sealed class TargetsFileException : Exception
 
     /// <summary>
     /// Escapes control characters (notably CR/LF) in <paramref name="value"/> so an attacker- or
-    /// mistake-controlled path cannot break the single-line stderr/JSON error contract.
+    /// mistake-controlled path cannot break the single-line stderr/JSON error contract. This is a
+    /// bespoke display-only escaping (C-style <c>\r</c>/<c>\n</c>/<c>\t</c> plus <c>\xNN</c> hex for
+    /// any other control character), not a standard format such as JSON string escaping; it exists
+    /// purely to keep the rendered message on one line and is not meant to be un-escaped.
     /// </summary>
     private static string EscapeForSingleLineDisplay(string value)
     {

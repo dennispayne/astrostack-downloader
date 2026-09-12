@@ -189,14 +189,17 @@ public static class TargetsFile
                     componentId = ScalarOrNull(value);
                     break;
                 case "state":
-                    if (value is not YamlScalarNode)
+                    if (value is not YamlScalarNode stateNode)
                     {
                         throw new TargetsFileValidationException(
                             InvalidStateReasonCode,
                             new FormatException("targets.yaml entry 'state' must be a scalar."));
                     }
 
-                    string? stateText = ScalarOrNull(value);
+                    // ScalarOrNull still normalizes explicit YAML null forms ("~", "null", empty) to
+                    // the default 'listed' state below; the type check above only rules out
+                    // non-scalar shapes such as sequences or mappings.
+                    string? stateText = ScalarOrNull(stateNode);
                     state = stateText is null ? TargetState.Listed : ParseState(stateText);
                     break;
                 case "acquiredVersion":
