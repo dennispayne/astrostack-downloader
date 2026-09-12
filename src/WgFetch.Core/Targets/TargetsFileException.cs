@@ -5,6 +5,9 @@ namespace WgFetch.Core.Targets;
 /// <summary>Indicates that a <c>targets.yaml</c> document could not be parsed or validated.</summary>
 public sealed class TargetsFileException : Exception
 {
+    /// <summary>Fallback reason code used when validation failed without a more specific code.</summary>
+    public const string InvalidDocumentReasonCode = "invalid-document";
+
     /// <summary>Initializes a parse or validation error for an optional source <paramref name="path"/>.</summary>
     public TargetsFileException(string? path, Exception innerException)
         : base(BuildMessage(path, innerException), innerException)
@@ -31,6 +34,6 @@ public sealed class TargetsFileException : Exception
         string prefix = $"failed to parse targets file{(path is null ? string.Empty : $" '{path}'")}: ";
         return innerException is YamlException yamlException
             ? $"{prefix}invalid YAML at line {yamlException.Start.Line + 1}, column {yamlException.Start.Column + 1}."
-            : $"{prefix}invalid targets document (reason: {reasonCode ?? "invalid-document"}).";
+            : $"{prefix}invalid targets document (reason: {reasonCode ?? InvalidDocumentReasonCode}).";
     }
 }

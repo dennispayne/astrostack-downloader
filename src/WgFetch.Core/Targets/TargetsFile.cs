@@ -16,6 +16,11 @@ public static class TargetsFile
 {
     private const string VersionKey = "version";
     private const string TargetsKey = "targets";
+    private const string InvalidVersionReasonCode = "invalid-version";
+    private const string InvalidStateReasonCode = "invalid-state";
+    private const string InvalidLastAttemptReasonCode = "invalid-last-attempt";
+    private const string InvalidKeyReasonCode = "invalid-key";
+    private const string MissingNameReasonCode = "missing-name";
 
     private static readonly string[] KnownEntryKeysInOrder =
     {
@@ -96,7 +101,7 @@ public static class TargetsFile
         }
         catch (TargetsFileValidationException ex)
         {
-            throw new TargetsFileException(path, ex.InnerException ?? ex, ex.ReasonCode);
+            throw new TargetsFileException(path, ex.ValidationCause, ex.ReasonCode);
         }
     }
 
@@ -108,11 +113,11 @@ public static class TargetsFile
         }
         catch (FormatException ex)
         {
-            throw new TargetsFileValidationException("invalid-version", ex);
+            throw new TargetsFileValidationException(InvalidVersionReasonCode, ex);
         }
         catch (OverflowException ex)
         {
-            throw new TargetsFileValidationException("invalid-version", ex);
+            throw new TargetsFileValidationException(InvalidVersionReasonCode, ex);
         }
     }
 
@@ -203,7 +208,7 @@ public static class TargetsFile
         return new TargetEntry
         {
             Name = name ?? throw new TargetsFileValidationException(
-                "missing-name",
+                MissingNameReasonCode,
                 new FormatException("A targets.yaml entry is missing the required 'name' field.")),
             Id = id,
             ComponentId = componentId,
@@ -229,7 +234,7 @@ public static class TargetsFile
         }
         catch (FormatException ex)
         {
-            throw new TargetsFileValidationException("invalid-state", ex);
+            throw new TargetsFileValidationException(InvalidStateReasonCode, ex);
         }
     }
 
@@ -244,7 +249,7 @@ public static class TargetsFile
         }
         catch (FormatException ex)
         {
-            throw new TargetsFileValidationException("invalid-last-attempt", ex);
+            throw new TargetsFileValidationException(InvalidLastAttemptReasonCode, ex);
         }
     }
 
@@ -269,7 +274,7 @@ public static class TargetsFile
         return node is YamlScalarNode scalar
             ? scalar.Value ?? string.Empty
             : throw new TargetsFileValidationException(
-                "invalid-key",
+                InvalidKeyReasonCode,
                 new FormatException("targets.yaml keys must be scalar values."));
     }
 
@@ -277,6 +282,8 @@ public static class TargetsFile
         : FormatException("Invalid targets document.", innerException)
     {
         public string ReasonCode { get; } = reasonCode;
+
+        public Exception ValidationCause { get; } = innerException;
     }
 
     /// <summary>
