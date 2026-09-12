@@ -140,6 +140,25 @@ public sealed class CommandRunnerInteractiveConfigTests
     }
 
     [Fact]
+    public async Task Interactive_session_repairs_rather_than_crashes_when_models_root_names_an_existing_file()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        var filePath = temp.Combine("not-a-directory");
+        await File.WriteAllTextAsync(filePath, "not a directory", CancellationToken.None);
+        await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = filePath }, configPath, CancellationToken.None);
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, ExitIndex);
+        var (runner, _, _) = CreateInteractiveRunner(console);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("existing file", console.Output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Interactive_session_installs_a_single_selected_model()
     {
         using var temp = new TempDirectory();

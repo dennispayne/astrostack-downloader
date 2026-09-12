@@ -178,6 +178,10 @@ public sealed partial class CommandRunner
         {
             return (null, SecretRedactor.Redact(exception.Message, redactionSecrets));
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return (null, SecretRedactor.Redact($"unable to update config file '{path}': {exception.Message}", redactionSecrets));
+        }
     }
 
     private async Task<TargetsDocument> LoadTargetsAsync(RunSettings settings, CancellationToken cancellationToken)

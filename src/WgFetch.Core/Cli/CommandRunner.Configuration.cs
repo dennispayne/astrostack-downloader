@@ -142,8 +142,10 @@ public sealed partial class CommandRunner
 
     /// <summary>
     /// Resolves the persisted <c>modelsRoot</c> to an absolute path without ever throwing: a config
-    /// file is arbitrary JSON, and an invalid value (for example an embedded NUL) must send the user
-    /// back to a repairable menu instead of crashing the whole interactive session.
+    /// file is arbitrary JSON, and an invalid value (for example an embedded NUL, or a path that
+    /// names an existing regular file) must send the user back to a repairable menu instead of
+    /// crashing the whole interactive session (installing would otherwise call
+    /// <c>Directory.CreateDirectory</c> on that file path and throw an unhandled <see cref="IOException"/>).
     /// </summary>
     private static bool TryResolveModelsRoot(
         WgFetchConfig config,
@@ -154,7 +156,18 @@ public sealed partial class CommandRunner
         var candidate = string.IsNullOrWhiteSpace(config.ModelsRoot) ? WgFetchPaths.ModelsDirectory : config.ModelsRoot;
         try
         {
-            modelsRoot = Path.GetFullPath(candidate);
+            var resolved = Path.GetFullPath(candidate);
+            if (File.Exists(resolved))
+            {
+                var fileDisplay = Logging.SecretRedactor.Redact(candidate, redactionSecrets);
+                console.MarkupLine(
+                    $"[red]The persisted modelsRoot names an existing file:[/] {Markup.Escape(fileDisplay)}. " +
+                    "Edit or unset the 'modelsRoot' setting to continue.");
+                modelsRoot = string.Empty;
+                return false;
+            }
+
+            modelsRoot = resolved;
             return true;
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)

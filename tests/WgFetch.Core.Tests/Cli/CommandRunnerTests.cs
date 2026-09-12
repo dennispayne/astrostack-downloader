@@ -487,6 +487,31 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task Config_set_reports_a_configuration_error_when_the_config_path_is_unwritable()
+    {
+        using var temp = new TempDirectory();
+        const string pathSecret = "path-token-secret";
+        var directory = temp.Combine(pathSecret);
+        Directory.CreateDirectory(directory);
+        // A directory can never be opened as the config file: this exercises the I/O failure path
+        // (as opposed to the malformed-JSON path) without requiring platform-specific permission bits.
+        var configPath = directory;
+        var environment = new Dictionary<string, string?>
+        {
+            ["CI"] = "true",
+            ["WGFETCH_AI_KEY"] = pathSecret,
+        };
+        var (runner, _, stderr) = CreateRunner(environment: environment);
+
+        var exit = await runner.RunAsync(
+            ["config", "set", "plain", "true", "--config", configPath],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.ConfigurationError, exit);
+        Assert.DoesNotContain(pathSecret, stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Config_interactive_rejects_plain_terminal_mode()
     {
         var (runner, _, stderr) = CreateRunner();
