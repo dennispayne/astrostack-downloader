@@ -484,19 +484,8 @@ public sealed class VerificationGate
 
     private static IReadOnlyDictionary<string, string> RemoveCredentialHeaders(IReadOnlyDictionary<string, string> headers) =>
         headers
-            .Where(header => !IsCredentialHeader(header.Key))
+            .Where(header => !Logging.SecretRedactor.IsSensitiveHeaderName(header.Key))
             .ToDictionary(header => header.Key, header => header.Value, StringComparer.OrdinalIgnoreCase);
-
-    private static bool IsCredentialHeader(string name) =>
-        name.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Cookie", StringComparison.OrdinalIgnoreCase) ||
-        name.Equals("Cookie2", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("api-key", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("apikey", StringComparison.OrdinalIgnoreCase) ||
-        name.EndsWith("-key", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("token", StringComparison.OrdinalIgnoreCase) ||
-        name.Contains("secret", StringComparison.OrdinalIgnoreCase);
 
     private static RedirectFollowResult Failed(
         Uri candidate,

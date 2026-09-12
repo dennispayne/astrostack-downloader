@@ -41,6 +41,7 @@ public sealed class SecretRedactorTests
     [Theory]
     [InlineData("https://api.search.example/search?q=nina&key=supersecretvalue", "supersecretvalue")]
     [InlineData("https://api.example/v1?access_token=abcdef123456", "abcdef123456")]
+    [InlineData("https://cdn.example/asset?X-Amz-Signature-Version=AWS4-HMAC-SHA256", "AWS4-HMAC-SHA256")]
     public void Redacts_credentials_and_sensitive_query_parameters_in_urls(string url, string secret)
     {
         var redacted = SecretRedactor.RedactUrl(url);

@@ -22,6 +22,12 @@ public static partial class SecretRedactor
         "aiKey", "searchKey", "githubToken", "apiKey", "token", "password", "secret", "authorization",
     };
 
+    private static readonly string[] SensitiveQueryFragments =
+        ["credential", "signature", "token", "sig", "hmac"];
+
+    private static readonly string[] SensitiveHeaderFragments =
+        ["api-key", "apikey", "token", "secret"];
+
     [GeneratedRegex(@"gh[pousr]_[A-Za-z0-9]{16,}", RegexOptions.CultureInvariant)]
     private static partial Regex GitHubTokenPattern();
 
@@ -36,6 +42,15 @@ public static partial class SecretRedactor
 
     /// <summary>True when a configuration or provenance field name holds a secret.</summary>
     public static bool IsSensitiveFieldName(string name) => SensitiveFieldNames.Contains(name);
+
+    /// <summary>True when an HTTP header can carry credentials and must not cross authorities.</summary>
+    public static bool IsSensitiveHeaderName(string name) =>
+        name.Equals("Authorization", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Proxy-Authorization", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Cookie", StringComparison.OrdinalIgnoreCase) ||
+        name.Equals("Cookie2", StringComparison.OrdinalIgnoreCase) ||
+        name.EndsWith("-key", StringComparison.OrdinalIgnoreCase) ||
+        SensitiveHeaderFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Redacts well-known secret shapes and any explicitly registered secret values.</summary>
     public static string Redact(string? text, IEnumerable<string>? knownSecrets = null)
@@ -130,9 +145,11 @@ public static partial class SecretRedactor
         return result;
     }
 
+    /// <summary>
+    /// Recognizes credential-bearing parameters used by signed CDN URLs, including AWS
+    /// <c>X-Amz-*</c> and Google <c>X-Goog-*</c> signing schemes.
+    /// </summary>
     private static bool IsSensitiveQueryKey(string name) =>
         SensitiveQueryKeys.Contains(name) ||
-        name.EndsWith("credential", StringComparison.OrdinalIgnoreCase) ||
-        name.EndsWith("signature", StringComparison.OrdinalIgnoreCase) ||
-        name.EndsWith("token", StringComparison.OrdinalIgnoreCase);
+        SensitiveQueryFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 }
