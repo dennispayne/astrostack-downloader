@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WgFetch.Core.Abstractions;
@@ -133,15 +132,28 @@ public static class ConfigFile
 
     public static async Task SaveAsync(WgFetchConfig config, string path, CancellationToken cancellationToken)
     {
+        if (path.Contains('\0'))
+        {
+            throw new IOException("path contains an embedded NUL character.");
+        }
+
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         var temp = path + ".tmp";
-        var text = JsonSerializer.Serialize(config, ConfigJsonContext.Default.WgFetchConfig);
-        if (Encoding.UTF8.GetByteCount(text) > MaxConfigBytes)
+        using var content = new MemoryStream();
+        await JsonSerializer
+            .SerializeAsync(content, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
+            .ConfigureAwait(false);
+        if (content.Length > MaxConfigBytes)
         {
             throw new IOException($"config is larger than the {MaxConfigBytes} byte limit.");
         }
 
-        await File.WriteAllTextAsync(temp, text, cancellationToken).ConfigureAwait(false);
+        content.Position = 0;
+        await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+        {
+            await content.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
+        }
+
         File.Move(temp, path, overwrite: true);
     }
 }

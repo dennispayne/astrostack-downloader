@@ -154,6 +154,19 @@ public sealed class ConfigFileTests
         Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(path));
     }
+
+    [Fact]
+    public async Task SaveAsync_EmbeddedNulPath_FailsClosed()
+    {
+        using var temp = new TempDirectory();
+        var prefix = temp.Combine("config.json");
+
+        var ex = await Assert.ThrowsAsync<IOException>(
+            () => ConfigFile.SaveAsync(new WgFetchConfig { Scope = "user" }, prefix + "\0suffix", CancellationToken.None));
+
+        Assert.Contains("embedded NUL", ex.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(prefix));
+    }
 }
 
 public sealed class ConfigRedactionTests

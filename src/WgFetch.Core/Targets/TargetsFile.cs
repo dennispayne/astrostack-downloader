@@ -308,6 +308,10 @@ public static class TargetsFile
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (path.Contains('\0'))
+        {
+            throw new IOException("path contains an embedded NUL character.");
+        }
 
         string text = Render(document);
         if (Encoding.UTF8.GetByteCount(text) > MaxFileBytes)
