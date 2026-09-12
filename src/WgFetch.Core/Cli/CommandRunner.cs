@@ -12,6 +12,7 @@ using WgFetch.Core.Progress;
 using WgFetch.Core.Prereqs;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
+using YamlDotNet.Core;
 
 namespace WgFetch.Core.Cli;
 
@@ -79,37 +80,32 @@ public sealed partial class CommandRunner
 
         var parsed = CommandLineParser.Parse(args);
 
-        if (parsed.NoCommandGiven && parsed.Errors.All(error => error == "no command given"))
-        {
-            return await ShowLandingAsync(parsed, cancellationToken).ConfigureAwait(false);
-        }
-
-        // --help, --version and argument errors must be fast and must never load a model.
-        if (parsed.HelpRequested)
-        {
-            _stdout.Write(CommandLineParser.RenderHelp(parsed.Command));
-            return ExitCode.Success;
-        }
-
-        if (parsed.VersionRequested)
-        {
-            _stdout.WriteLine(Version);
-            return ExitCode.Success;
-        }
-
-        if (parsed.HasErrors)
-        {
-            foreach (var error in parsed.Errors)
-            {
-                _stderr.WriteLine($"wgfetch: {error}");
-            }
-
-            _stderr.WriteLine("Run 'wgfetch --help' for usage.");
-            return ExitCode.UsageError;
-        }
-
         try
         {
+            if (parsed.NoCommandGiven && parsed.Errors.All(error => error == "no command given"))
+            {
+                return await ShowLandingAsync(parsed, cancellationToken).ConfigureAwait(false);
+            }
+
+            // --help, --version and argument errors must be fast and must never load a model.
+            if (parsed.HelpRequested)
+            {
+                _stdout.Write(CommandLineParser.RenderHelp(parsed.Command));
+                return ExitCode.Success;
+            }
+
+            if (parsed.VersionRequested)
+            {
+                _stdout.WriteLine(Version);
+                return ExitCode.Success;
+            }
+
+            if (parsed.HasErrors)
+            {
+                WriteUsageErrors(parsed);
+                return ExitCode.UsageError;
+            }
+
             return await ExecuteAsync(parsed, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -180,6 +176,7 @@ public sealed partial class CommandRunner
 
     private async Task<ExitCode> ShowLandingAsync(ParsedCommandLine parsed, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
         var environment = BuildTerminalEnvironment(settings);
@@ -187,31 +184,22 @@ public sealed partial class CommandRunner
 
         if (settings.Json || environment.OutputRedirected)
         {
-            if (settings.Json)
-            {
-                var events = new JsonEventWriter(_stdout, settings.Secrets);
-                events.Write(new JsonEvent
-                {
-                    Event = "error",
-                    Status = "usage-error",
-                    Message = "no command given",
-                    ExitCode = (int)ExitCode.UsageError,
-                });
-            }
-            else
-            {
-                _stderr.WriteLine("wgfetch: no command given");
-                _stderr.WriteLine("Run 'wgfetch --help' for usage.");
-            }
-
+            WriteUsageErrors(parsed);
             return ExitCode.UsageError;
         }
 
         TargetsDocument? targets = null;
         var targetsPath = TargetsPath(settings);
-        if (File.Exists(targetsPath))
+        try
         {
-            targets = await TargetsFile.LoadAsync(targetsPath, cancellationToken).ConfigureAwait(false);
+            if (File.Exists(targetsPath))
+            {
+                targets = await TargetsFile.LoadAsync(targetsPath, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or FormatException or YamlException)
+        {
+            _stderr.WriteLine("wgfetch: unable to read targets.yaml.");
         }
 
         var prerequisitesInstalled = File.Exists(Path.Combine(settings.ModelsRoot, "install-manifest.json"));
@@ -241,7 +229,17 @@ public sealed partial class CommandRunner
 
         _stdout.WriteLine();
         _stdout.Write(CommandLineParser.RenderHelp());
-        return ExitCode.Success;
+        return ExitCode.UsageError;
+    }
+
+    private void WriteUsageErrors(ParsedCommandLine parsed)
+    {
+        foreach (var error in parsed.Errors)
+        {
+            _stderr.WriteLine($"wgfetch: {error}");
+        }
+
+        _stderr.WriteLine("Run 'wgfetch --help' for usage.");
     }
 
     private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings)

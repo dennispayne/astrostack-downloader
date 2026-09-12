@@ -53,6 +53,7 @@ public sealed class SplashScreenTests
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
         {
+            Ansi = AnsiSupport.Yes,
             ColorSystem = ColorSystemSupport.TrueColor,
             Out = new AnsiConsoleOutput(output),
         });
@@ -61,5 +62,6 @@ public sealed class SplashScreenTests
 
         Assert.Contains("╭", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("resolve  •  verify  •  download", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("\u001b[38;2;99;102;241m", output.ToString(), StringComparison.Ordinal);
     }
 }

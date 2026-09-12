@@ -104,7 +104,7 @@ public sealed class CommandRunnerTests
 
         var exit = await runner.RunAsync([], CancellationToken.None);
 
-        Assert.Equal(ExitCode.Success, exit);
+        Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
         Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
     }
@@ -129,17 +129,18 @@ public sealed class CommandRunnerTests
 
         var exit = await runner.RunAsync([], CancellationToken.None);
 
-        Assert.Equal(ExitCode.Success, exit);
+        Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("Targets acquired", stdout.ToString(), StringComparison.Ordinal);
         Assert.Contains("·  1", stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task NoCommand_Json_EmitsOnlyUsageErrorEvent()
+    public async Task NoCommand_Json_WritesUsageErrorToStandardError()
     {
         var stdout = new StringWriter();
-        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
         {
             TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
         });
@@ -147,8 +148,8 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync(["--json"], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        using var json = JsonDocument.Parse(stdout.ToString());
-        Assert.Equal("error", json.RootElement.GetProperty("event").GetString());
+        Assert.Empty(stdout.ToString());
+        Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("resolve  •", stdout.ToString(), StringComparison.Ordinal);
     }
 
@@ -163,7 +164,7 @@ public sealed class CommandRunnerTests
 
         var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
 
-        Assert.Equal(ExitCode.Success, exit);
+        Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("╭", stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("\u001b", stdout.ToString(), StringComparison.Ordinal);
@@ -184,6 +185,37 @@ public sealed class CommandRunnerTests
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Empty(stdout.ToString());
         Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_MalformedTargets_ShowsLandingAndUsageError()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(temp.Path, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Cancelled_ReturnsCancelledExitCode()
+    {
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync([], new CancellationToken(canceled: true));
+
+        Assert.Equal(ExitCode.Cancelled, exit);
+        Assert.Contains("cancelled", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

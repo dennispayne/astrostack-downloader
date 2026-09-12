@@ -41,6 +41,25 @@ public sealed class AotSmokeTests
         return (process.ExitCode, stdout, stderr);
     }
 
+    private static async Task<int> RunAttachedToConsoleAsync(params string[] args)
+    {
+        var info = new ProcessStartInfo(BinaryPath!)
+        {
+            UseShellExecute = false,
+        };
+        info.Environment.Remove("CI");
+        info.Environment.Remove("NO_COLOR");
+
+        foreach (var arg in args)
+        {
+            info.ArgumentList.Add(arg);
+        }
+
+        using var process = Process.Start(info)!;
+        await process.WaitForExitAsync(CancellationToken.None);
+        return process.ExitCode;
+    }
+
     [Fact]
     public async Task PublishedBinary_PrintsHelp()
     {
@@ -81,6 +100,19 @@ public sealed class AotSmokeTests
 
         Assert.Equal((int)ExitCode.UsageError, exit);
         Assert.Contains("wgfetch", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PublishedBinary_RendersLandingWhenAttachedToConsole()
+    {
+        if (!HasBinary || Console.IsOutputRedirected)
+        {
+            return;
+        }
+
+        var exit = await RunAttachedToConsoleAsync();
+
+        Assert.Equal((int)ExitCode.UsageError, exit);
     }
 
     /// <summary>
