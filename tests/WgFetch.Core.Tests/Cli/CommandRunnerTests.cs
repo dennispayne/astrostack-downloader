@@ -293,12 +293,14 @@ public sealed class CommandRunnerTests
     }
 
     [Theory]
-    [InlineData("status", null)]
-    [InlineData("remove", "nina")]
-    public async Task Command_MalformedTargets_FailsClosedWithUsageError(string command, string? argument)
+    [InlineData("status", null, "targets: [\n")]
+    [InlineData("remove", "nina", "targets: [\n")]
+    [InlineData("status", null, "version: 1\nversion: 2\n")]
+    [InlineData("status", null, "targets:\n  - name: nina\n    name: phd2\n")]
+    public async Task Command_MalformedTargets_FailsClosedWithUsageError(string command, string? argument, string yaml)
     {
         using var temp = new TempDirectory();
-        await File.WriteAllTextAsync(Path.Combine(temp.Path, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        await File.WriteAllTextAsync(Path.Combine(temp.Path, "targets.yaml"), yaml, CancellationToken.None);
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         var runner = new CommandRunner(stdout, stderr, new RunnerDependencies

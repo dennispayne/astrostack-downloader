@@ -13,27 +13,27 @@ public static class SplashScreen
         TextWriter writer,
         TargetsDocument? targets,
         string outputDirectory,
-        bool prerequisitesInstalled,
+        bool prerequisitesPresent,
         DateTimeOffset? now = null,
         string? targetsError = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
         WritePlainHeader(writer);
-        WriteStatus(writer, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError);
+        WriteStatus(writer, targets, outputDirectory, prerequisitesPresent, now ?? DateTimeOffset.UtcNow, targetsError);
     }
 
     /// <summary>Builds the colored interactive splash using Spectre.Console.</summary>
     public static IRenderable CreateInteractive(
         TargetsDocument? targets,
         string outputDirectory,
-        bool prerequisitesInstalled,
+        bool prerequisitesPresent,
         DateTimeOffset? now = null,
         string? targetsError = null)
     {
         return new Rows(
             CreateInteractiveHeader(),
-            CreateStatus(targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError));
+            CreateStatus(targets, outputDirectory, prerequisitesPresent, now ?? DateTimeOffset.UtcNow, targetsError));
     }
 
     internal static void WritePlainHeader(TextWriter writer)
@@ -73,12 +73,12 @@ public static class SplashScreen
     internal static IRenderable CreateStatus(
         TargetsDocument? targets,
         string outputDirectory,
-        bool prerequisitesInstalled,
+        bool prerequisitesPresent,
         DateTimeOffset now,
         string? targetsError)
     {
         var status = new StringWriter(CultureInfo.InvariantCulture);
-        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now, targetsError);
+        WriteStatus(status, targets, outputDirectory, prerequisitesPresent, now, targetsError);
         return new Text(status.ToString());
     }
 
@@ -86,11 +86,14 @@ public static class SplashScreen
         TextWriter writer,
         TargetsDocument? targets,
         string outputDirectory,
-        bool prerequisitesInstalled,
+        bool prerequisitesPresent,
         DateTimeOffset now,
         string? targetsError)
     {
-        var prereqsLine = FormatLine("Prereqs", prerequisitesInstalled ? "installed" : "not installed");
+        // `prerequisitesPresent` comes from a hashing-free probe, so it may not claim "installed":
+        // a same-size tampered asset passes the probe but fails digest verification. Say what is
+        // actually known and point at the command that does verify.
+        var prereqsLine = FormatLine("Prereqs", prerequisitesPresent ? "present (unverified)" : "not installed");
 
         if (targetsError is not null)
         {
@@ -117,7 +120,22 @@ public static class SplashScreen
     }
 
     /// <summary>Formats one "label · value" status row with the column width every row shares.</summary>
-    private static string FormatLine(string label, string value) => $"{label,-18} ·  {value}";
+    private static string FormatLine(string label, string value) => $"{label,-18} ·  {Sanitize(value)}";
+
+    /// <summary>
+    /// Removes control characters from values that can be user-controlled (the source tree comes from
+    /// <c>--output</c>, the config file or <c>WGFETCH_OUTPUT</c>), so a crafted path can never inject
+    /// terminal escape sequences — the <c>--plain</c>/<c>NO_COLOR</c> output must stay escape-free.
+    /// </summary>
+    private static string Sanitize(string value)
+    {
+        if (!value.Any(char.IsControl))
+        {
+            return value;
+        }
+
+        return new string(value.Select(c => char.IsControl(c) ? '?' : c).ToArray());
+    }
 
     private static string FormatElapsed(DateTimeOffset time, DateTimeOffset now)
     {

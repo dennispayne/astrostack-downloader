@@ -25,7 +25,9 @@ public static class TargetsFile
 
     /// <summary>
     /// Loads <paramref name="path"/>. A missing file is not an error — it yields a fresh, empty
-    /// document (docs/REQUIREMENTS.md: "a populated-but-unacquired repo is valid").
+    /// document (docs/REQUIREMENTS.md: "a populated-but-unacquired repo is valid"). A file that
+    /// exists but cannot be read or parsed fails closed as a <see cref="TargetsFileException"/>, so
+    /// no caller has to know which parser or I/O exception type surfaced.
     /// </summary>
     public static async Task<TargetsDocument> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
@@ -36,17 +38,44 @@ public static class TargetsFile
             return new TargetsDocument();
         }
 
-        string text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
-        return Parse(text);
+        string text;
+        try
+        {
+            text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
+        }
+
+        try
+        {
+            return Parse(text);
+        }
+        catch (Exception ex) when (ex is FormatException or TargetsFileException)
+        {
+            throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
+        }
     }
 
-    /// <summary>Parses <c>targets.yaml</c> content already read into memory.</summary>
+    /// <summary>
+    /// Parses <c>targets.yaml</c> content already read into memory. Parser-level failures — malformed
+    /// documents, duplicate keys and other input YamlDotNet rejects — surface as
+    /// <see cref="TargetsFileException"/>; schema violations surface as <see cref="FormatException"/>.
+    /// </summary>
     public static TargetsDocument Parse(string yamlText)
     {
         var stream = new YamlStream();
-        using (var reader = new StringReader(yamlText))
+        try
         {
+            using var reader = new StringReader(yamlText);
             stream.Load(reader);
+        }
+        catch (Exception ex) when (ex is YamlException or ArgumentException)
+        {
+            // YamlDotNet reports most malformed input as YamlException, but some mapping failures
+            // escape as ArgumentException from the underlying dictionary; both must fail closed.
+            throw new TargetsFileException($"targets.yaml is not valid YAML: {ex.Message}", ex);
         }
 
         var doc = new TargetsDocument { Targets = new List<TargetEntry>() };

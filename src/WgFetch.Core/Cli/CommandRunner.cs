@@ -12,7 +12,6 @@ using WgFetch.Core.Prereqs;
 using WgFetch.Core.Progress;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
-using YamlDotNet.Core;
 
 namespace WgFetch.Core.Cli;
 
@@ -210,8 +209,10 @@ public sealed partial class CommandRunner
                 targets = await TargetsFile.LoadAsync(targetsPath, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or YamlException)
+        catch (TargetsFileException)
         {
+            // The loader has already normalized every parser and I/O failure, so the landing view can
+            // report a single stable message instead of leaking parser detail into cosmetic output.
             targetsError = "unable to read targets.yaml";
             _stderr.WriteLine($"wgfetch: {targetsError}.");
         }
@@ -240,7 +241,7 @@ public sealed partial class CommandRunner
         // computed when a status block will actually show it — the first-run hint never does. The
         // default install intentionally installs only the required embedding model (Phi is optional
         // unless --include-llm is requested), so only that model may make the landing report state.
-        var prerequisitesInstalled = (targets is not null || targetsError is not null) &&
+        var prerequisitesPresent = (targets is not null || targetsError is not null) &&
             PrereqInstaller.QuickReady(settings.ModelsRoot, [PinnedModels.Embedding]);
         var now = _dependencies.TimeProvider.GetUtcNow();
         if (console is not null)
@@ -248,7 +249,7 @@ public sealed partial class CommandRunner
             console.Write(SplashScreen.CreateStatus(
                 targets,
                 settings.OutputDirectory,
-                prerequisitesInstalled,
+                prerequisitesPresent,
                 now,
                 targetsError));
         }
@@ -258,7 +259,7 @@ public sealed partial class CommandRunner
                 _stdout,
                 targets,
                 settings.OutputDirectory,
-                prerequisitesInstalled,
+                prerequisitesPresent,
                 now,
                 targetsError);
         }

@@ -11,7 +11,7 @@ public sealed class SplashScreenTests
     {
         var output = new StringWriter();
 
-        SplashScreen.WritePlain(output, null, "/source", prerequisitesInstalled: false);
+        SplashScreen.WritePlain(output, null, "/source", prerequisitesPresent: false);
 
         Assert.Contains("wgfetch", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("prereqs install", output.ToString(), StringComparison.Ordinal);
@@ -36,13 +36,13 @@ public sealed class SplashScreenTests
             output,
             targets,
             "/source",
-            prerequisitesInstalled: true,
+            prerequisitesPresent: true,
             now: new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero));
 
         Assert.Contains("Targets acquired", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("·  1", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("Prereqs", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("installed", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("present (unverified)", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("/source", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("Get started", output.ToString(), StringComparison.Ordinal);
     }
@@ -62,7 +62,7 @@ public sealed class SplashScreenTests
             Targets = [new TargetEntry { Name = "nina", LastAttempt = now.AddMinutes(-elapsedMinutes) }],
         };
 
-        SplashScreen.WritePlain(output, targets, "/source", prerequisitesInstalled: true, now);
+        SplashScreen.WritePlain(output, targets, "/source", prerequisitesPresent: true, now);
 
         Assert.Contains($"Last attempt       ·  {expected}", output.ToString(), StringComparison.Ordinal);
     }
@@ -76,7 +76,7 @@ public sealed class SplashScreenTests
             output,
             new TargetsDocument(),
             "/source",
-            prerequisitesInstalled: false,
+            prerequisitesPresent: false,
             now: new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero));
 
         Assert.Contains("Targets acquired", output.ToString(), StringComparison.Ordinal);
@@ -94,7 +94,7 @@ public sealed class SplashScreenTests
             output,
             targets: null,
             "/source",
-            prerequisitesInstalled: false,
+            prerequisitesPresent: false,
             targetsError: "unable to read targets.yaml");
 
         Assert.Contains("unable to read targets.yaml", output.ToString(), StringComparison.Ordinal);
@@ -113,7 +113,7 @@ public sealed class SplashScreenTests
             Out = new AnsiConsoleOutput(output),
         });
 
-        console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesInstalled: false));
+        console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesPresent: false));
 
         Assert.Contains("╭", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("resolve  •  verify  •  download", output.ToString(), StringComparison.Ordinal);
@@ -131,9 +131,47 @@ public sealed class SplashScreenTests
             Out = new AnsiConsoleOutput(output),
         });
 
-        console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesInstalled: false));
+        console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesPresent: false));
 
         var rendered = output.ToString();
         Assert.Equal(3, rendered.Count(c => c == '\\'));
+    }
+
+    [Fact]
+    public void Plain_SourceTreeWithControlCharacters_EmitsNoEscapeSequences()
+    {
+        var output = new StringWriter();
+
+        SplashScreen.WritePlain(
+            output,
+            new TargetsDocument(),
+            "/source\u001b[31mred\u0007",
+            prerequisitesPresent: false,
+            now: new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero));
+
+        var rendered = output.ToString();
+        Assert.DoesNotContain("\u001b", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u0007", rendered, StringComparison.Ordinal);
+        Assert.Contains("/source?[31mred?", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Interactive_SourceTreeWithControlCharacters_EmitsNoInjectedEscapeSequences()
+    {
+        var output = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Out = new AnsiConsoleOutput(output),
+        });
+
+        console.Write(SplashScreen.CreateInteractive(
+            new TargetsDocument(),
+            "/source\u001b[31mred",
+            prerequisitesPresent: false,
+            new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero)));
+
+        Assert.DoesNotContain("\u001b", output.ToString(), StringComparison.Ordinal);
     }
 }

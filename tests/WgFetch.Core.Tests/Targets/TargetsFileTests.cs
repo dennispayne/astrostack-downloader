@@ -1,4 +1,5 @@
 using WgFetch.Core.Targets;
+using WgFetch.Core.Tests.Support;
 using YamlDotNet.RepresentationModel;
 
 namespace WgFetch.Core.Tests.Targets;
@@ -158,6 +159,45 @@ public class TargetsFileTests
         var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
 
         Assert.Contains("version must be a scalar", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("targets: [\n")]
+    [InlineData("version: 1\nversion: 2\n")]
+    [InlineData("targets:\n  - name: nina\n    name: phd2\n")]
+    [InlineData("? [a, b]\n: 1\n? [a, b]\n: 2\n")]
+    [InlineData("*missing\n")]
+    public void Parse_MalformedYaml_FailsClosedWithTargetsFileException(string yaml)
+    {
+        var ex = Assert.Throws<TargetsFileException>(() => TargetsFile.Parse(yaml));
+
+        Assert.Contains("not valid YAML", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoadAsync_MalformedYaml_FailsClosedWithPathBearingException()
+    {
+        using var temp = new TempDirectory();
+        var path = Path.Combine(temp.Path, "targets.yaml");
+        await File.WriteAllTextAsync(path, "version: 1\nversion: 2\n", CancellationToken.None);
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+        Assert.Equal(path, ex.FilePath);
+        Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoadAsync_SchemaInvalidYaml_FailsClosedWithTargetsFileException()
+    {
+        using var temp = new TempDirectory();
+        var path = Path.Combine(temp.Path, "targets.yaml");
+        await File.WriteAllTextAsync(path, "version: not-a-number\ntargets: []\n", CancellationToken.None);
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+        Assert.Equal(path, ex.FilePath);
+        Assert.IsType<FormatException>(ex.InnerException);
     }
 
     [Fact]

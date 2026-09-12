@@ -9,7 +9,6 @@ using WgFetch.Core.Output;
 using WgFetch.Core.Prereqs;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
-using YamlDotNet.Core;
 
 namespace WgFetch.Core.Cli;
 
@@ -24,23 +23,8 @@ public sealed partial class CommandRunner
     /// exists and cannot be read or parsed fails closed as a <see cref="TargetsFileException"/> that
     /// <see cref="RunAsync"/> turns into a message and a usage exit code — never a crash.
     /// </summary>
-    private async Task<TargetsDocument> LoadTargetsAsync(RunSettings settings, CancellationToken cancellationToken)
-    {
-        var path = TargetsPath(settings);
-        if (!File.Exists(path))
-        {
-            return new TargetsDocument();
-        }
-
-        try
-        {
-            return await TargetsFile.LoadAsync(path, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is FormatException or YamlException or IOException or UnauthorizedAccessException)
-        {
-            throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
-        }
-    }
+    private Task<TargetsDocument> LoadTargetsAsync(RunSettings settings, CancellationToken cancellationToken) =>
+        TargetsFile.LoadAsync(TargetsPath(settings), cancellationToken);
 
     private async Task<ExitCode> AddAsync(
         ParsedCommandLine parsed,
@@ -628,7 +612,7 @@ public sealed partial class CommandRunner
             return [];
         }
 
-        var document = TargetsFile.Parse(await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false));
+        var document = await TargetsFile.LoadAsync(path, cancellationToken).ConfigureAwait(false);
         return document.Targets.Select(t => t.Name).ToArray();
     }
 

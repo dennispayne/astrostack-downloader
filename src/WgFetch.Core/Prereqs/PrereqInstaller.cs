@@ -120,13 +120,15 @@ public sealed class PrereqInstaller
     }
 
     /// <summary>
-    /// Hashing-free readiness probe for latency-sensitive, cosmetic paths such as the no-command
+    /// Hashing-free presence probe for latency-sensitive, cosmetic paths such as the no-command
     /// landing view: every asset must be digest-pinned, exist, and — where a size is pinned — match it
-    /// on disk. An unpinned asset or a model that declares no assets is reported as not ready, exactly
-    /// as the installer refuses unverifiable weights.
-    /// Full digest verification stays in <see cref="StatusAsync(string, CancellationToken)"/>, which
-    /// <c>prereqs status</c> and <c>verify</c> use — a bare <c>wgfetch</c> must never spend seconds
-    /// hashing model files. Unreadable trees report "not ready" rather than throwing.
+    /// on disk. An unpinned asset or a model that declares no assets is reported as not present,
+    /// exactly as the installer refuses unverifiable weights.
+    /// This is presence, never verification: a tampered asset of the pinned length passes here but
+    /// fails <see cref="StatusAsync(string, CancellationToken)"/>, so callers must present the result
+    /// as unverified. Full digest verification stays in <c>prereqs status</c> and <c>verify</c> — a
+    /// bare <c>wgfetch</c> must never spend seconds hashing model files. Unreadable trees report
+    /// "not present" rather than throwing.
     /// </summary>
     public static bool QuickReady(string modelsRoot, IReadOnlyList<PinnedModel> models)
     {
