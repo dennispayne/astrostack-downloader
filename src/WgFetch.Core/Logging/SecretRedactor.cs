@@ -108,7 +108,7 @@ public static partial class SecretRedactor
     /// </summary>
     public static string RedactUrl(string url, IEnumerable<string>? knownSecrets)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.IsFile)
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             return url;
         }

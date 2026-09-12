@@ -76,7 +76,7 @@ public sealed partial class CommandRunner
                 var value = ConfigSettings.GetRedactedValue(config, parsed.Positional[0], out var getError, redactionSecrets);
                 if (getError is not null)
                 {
-                    _stderr.WriteLine($"wgfetch config get: {getError}");
+                    _stderr.WriteLine($"wgfetch config get: {SecretRedactor.Redact(getError, redactionSecrets)}");
                     return ExitCode.UsageError;
                 }
 
@@ -116,7 +116,7 @@ public sealed partial class CommandRunner
                 }
                 if (updated is null)
                 {
-                    _stderr.WriteLine($"wgfetch config set: {setError}");
+                    _stderr.WriteLine($"wgfetch config set: {SecretRedactor.Redact(setError, setRedactionSecrets)}");
                     return ExitCode.UsageError;
                 }
 
@@ -152,7 +152,7 @@ public sealed partial class CommandRunner
                 }
                 if (without is null)
                 {
-                    _stderr.WriteLine($"wgfetch config unset: {unsetError}");
+                    _stderr.WriteLine($"wgfetch config unset: {SecretRedactor.Redact(unsetError, redactionSecrets)}");
                     return ExitCode.UsageError;
                 }
 
@@ -161,7 +161,8 @@ public sealed partial class CommandRunner
                 return ExitCode.Success;
 
             default:
-                _stderr.WriteLine($"wgfetch config: unknown subcommand '{parsed.SubCommand}' (expected set|get|list|unset).");
+                _stderr.WriteLine(
+                    $"wgfetch config: unknown subcommand '{SecretRedactor.Redact(parsed.SubCommand, redactionSecrets)}' (expected set|get|list|unset).");
                 return ExitCode.UsageError;
         }
     }

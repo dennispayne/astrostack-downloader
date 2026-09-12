@@ -174,6 +174,15 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void RedactUrl_redacts_sensitive_parameters_from_non_http_absolute_urls()
+    {
+        var redacted = SecretRedactor.RedactUrl("file:///tmp/x?api_key=arbitrary-secret");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RedactUrl_leaves_a_non_sensitive_fragment_untouched()
     {
         const string url = "https://host.example/docs#installation";

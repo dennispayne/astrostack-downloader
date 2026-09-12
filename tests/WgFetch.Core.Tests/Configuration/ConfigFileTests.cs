@@ -298,6 +298,35 @@ public sealed class ConfigRedactionTests
     }
 
     [Fact]
+    public void Redacted_scrubs_sensitive_query_values_even_when_a_secret_matches_the_parameter_name()
+    {
+        var config = new WgFetchConfig
+        {
+            AiKey = "token",
+            AiModel = "https://host.example/?token=actual-secret-value",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("actual-secret-value", redacted.AiModel, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiModel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_sensitive_parameters_from_file_scheme_endpoints()
+    {
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = "file:///tmp/x?api_key=arbitrary-secret",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("arbitrary-secret", redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Redacted_scrubs_even_a_short_configured_secret_from_every_string_field()
     {
         const string secret = "abc";

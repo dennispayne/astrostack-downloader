@@ -137,6 +137,7 @@ tool makes acquisition convenient; it does not grant you any redistribution righ
 | 7 | Requires authentication (P1, unsupported) |
 | 8 | Rate limited |
 | 9 | Network error |
+| 10 | Configuration error |
 | 130 | Cancelled (Ctrl+C) |
 
 Exit codes, log records and `--json` events always agree.

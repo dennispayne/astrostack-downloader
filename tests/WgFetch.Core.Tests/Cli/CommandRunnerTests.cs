@@ -459,6 +459,33 @@ public sealed class CommandRunnerTests
         Assert.Contains("REDACTED", document.RootElement.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("get")]
+    [InlineData("set")]
+    [InlineData("unset")]
+    public async Task Config_unknown_setting_errors_redact_effective_environment_secrets(string subcommand)
+    {
+        using var temp = new TempDirectory();
+        const string envSecret = "environment-only-secret";
+        var environment = new Dictionary<string, string?>
+        {
+            ["CI"] = "true",
+            ["WGFETCH_AI_KEY"] = envSecret,
+        };
+        var args = subcommand switch
+        {
+            "set" => new[] { "config", subcommand, envSecret, "value", "--config", temp.Combine("config.json") },
+            _ => ["config", subcommand, envSecret, "--config", temp.Combine("config.json")],
+        };
+        var (runner, _, stderr) = CreateRunner(environment: environment);
+
+        var exit = await runner.RunAsync(args, CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.DoesNotContain(envSecret, stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("REDACTED", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Config_set_does_not_overwrite_a_malformed_existing_config()
     {

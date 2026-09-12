@@ -277,6 +277,32 @@ public sealed class PinnedModelsTests
     }
 
     [Fact]
+    public async Task Install_rejects_a_models_root_symlink_before_acquiring_the_manifest_lock_or_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var outside = temp.Combine("outside");
+        Directory.CreateDirectory(outside);
+        var rootLink = temp.Combine("models-link");
+        if (!TryCreateDirectorySymlink(rootLink, outside))
+        {
+            throw SkipException.ForSkip("Directory symlinks are not supported by this platform or test environment.");
+        }
+
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = TestModel("demo-model", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            rootLink, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+        Assert.False(PrereqInstaller.IsManifestLockTracked(Path.Combine(rootLink, "install-manifest.json")));
+        Assert.False(File.Exists(Path.Combine(outside, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
     public async Task Install_rejects_an_asset_parent_symlink_before_touching_the_network()
     {
         using var temp = new TempDirectory();

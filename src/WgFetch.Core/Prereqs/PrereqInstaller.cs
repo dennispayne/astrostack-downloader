@@ -233,6 +233,21 @@ public sealed class PrereqInstaller
         }
     }
 
+    private static void RejectReparsePointRoot(string root)
+    {
+        var normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        try
+        {
+            if ((File.GetAttributes(normalizedRoot) & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidOperationException($"Refusing to use models root '{normalizedRoot}': it is a symbolic link or reparse point.");
+            }
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+        }
+    }
+
     /// <summary>Reports presence, paths, sizes and verification state for every pinned model.</summary>
     public static Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
         string modelsRoot,
@@ -245,6 +260,7 @@ public sealed class PrereqInstaller
         IReadOnlyList<PinnedModel>? models,
         CancellationToken cancellationToken)
     {
+        RejectReparsePointRoot(modelsRoot);
         var result = new List<PrereqModelStatus>();
         foreach (var model in models ?? PinnedModels.All)
         {
@@ -307,6 +323,7 @@ public sealed class PrereqInstaller
         bool dryRun,
         CancellationToken cancellationToken)
     {
+        RejectReparsePointRoot(modelsRoot);
         var messages = new List<string>();
         var success = true;
         var installed = new List<PrereqInstalledModel>();
