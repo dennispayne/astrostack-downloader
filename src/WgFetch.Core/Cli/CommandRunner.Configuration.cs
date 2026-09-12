@@ -111,16 +111,14 @@ public sealed partial class CommandRunner
     }
 
     internal static IAnsiConsole CreateInteractiveConsole(TextWriter output, bool plainRendering) =>
-        plainRendering
-            ? AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.No,
-                ColorSystem = ColorSystemSupport.NoColors,
-                // Plain controls rendering only; the attached terminal must still accept prompts.
-                Interactive = InteractionSupport.Yes,
-                Out = new AnsiConsoleOutput(output),
-            })
-            : AnsiConsole.Console;
+        AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = plainRendering ? AnsiSupport.No : AnsiSupport.Detect,
+            ColorSystem = plainRendering ? ColorSystemSupport.NoColors : ColorSystemSupport.Detect,
+            // Plain controls rendering only; the attached terminal must still accept prompts.
+            Interactive = InteractionSupport.Yes,
+            Out = new AnsiConsoleOutput(output),
+        });
 
     private static void RenderConfig(IAnsiConsole console, WgFetchConfig config)
     {
