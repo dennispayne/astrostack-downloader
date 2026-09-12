@@ -301,6 +301,20 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public async Task LoadAsync_MissingParentDirectory_ReturnsEmptyDocument_NotAnError()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            $"does-not-exist-{Guid.NewGuid():N}",
+            "targets.yaml");
+
+        TargetsDocument doc = await TargetsFile.LoadAsync(path);
+
+        Assert.Equal(TargetsDocument.CurrentSchemaVersion, doc.Version);
+        Assert.Empty(doc.Targets);
+    }
+
+    [Fact]
     public async Task LoadAsync_NonRegularPath_FailsClosedWithoutBlocking()
     {
         using var temp = new TempDirectory();

@@ -242,13 +242,21 @@ internal static class RegularFileText
         private const uint OpenExisting = 3;
         private const uint FileFlagOverlapped = 0x40000000;
         private const uint FileTypeDisk = 1;
+        private const int FileNotFound = 2;
+        private const int PathNotFound = 3;
 
         internal static async Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)
         {
             using var handle = CreateFile(path, GenericRead, ShareReadWriteDelete, IntPtr.Zero, OpenExisting, FileFlagOverlapped, IntPtr.Zero);
             if (handle.IsInvalid)
             {
-                throw new IOException($"unable to open the file (Win32 error {Marshal.GetLastPInvokeError()}).");
+                var error = Marshal.GetLastPInvokeError();
+                throw error switch
+                {
+                    FileNotFound => new FileNotFoundException(null, path),
+                    PathNotFound => new DirectoryNotFoundException($"Could not find a part of the path '{path}'."),
+                    _ => new IOException($"unable to open the file (Win32 error {error})."),
+                };
             }
 
             if (GetFileType(handle) != FileTypeDisk)
