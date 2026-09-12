@@ -378,8 +378,15 @@ public sealed class CommandRunnerTests
             var asset = PinnedModels.Embedding.Assets[i];
             var path = Path.Combine(PrereqInstaller.ModelDirectory(modelsRoot, PinnedModels.Embedding), asset.RelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var size = asset.SizeBytes!.Value;
+            if (truncateFirstAsset && i == 0)
+            {
+                Assert.True(size > 0, "The truncated-asset regression requires a non-empty pinned asset.");
+                size--;
+            }
+
             using var file = File.Create(path);
-            file.SetLength(asset.SizeBytes!.Value - (truncateFirstAsset && i == 0 ? 1 : 0));
+            file.SetLength(size);
         }
     }
 
