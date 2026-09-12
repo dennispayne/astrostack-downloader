@@ -125,7 +125,13 @@ public static class TargetsFile
         {
             if (Statx(-100, path, 0, 1, out var stat) != 0)
             {
-                throw new IOException($"Unable to inspect file type (errno {Marshal.GetLastPInvokeError()}).");
+                var error = Marshal.GetLastPInvokeError();
+                if (error == 2)
+                {
+                    throw new FileNotFoundException();
+                }
+
+                throw new IOException($"Unable to inspect file type (errno {error}).");
             }
 
             return (stat.Mode & FileTypeMask) == RegularFile;

@@ -307,32 +307,42 @@ public class TargetsFileTests
     {
         using var temp = new TempDirectory();
         var path = Path.Combine(temp.Path, "targets.yaml");
-        var usingFifo = OperatingSystem.IsLinux() && await TryCreateFifoAsync(path);
-        if (!usingFifo)
-        {
-            // Cross-platform fallback still validates fail-closed behavior for non-regular paths.
-            Directory.CreateDirectory(path);
-        }
+        Directory.CreateDirectory(path);
 
         var loadTask = TargetsFile.LoadAsync(path);
         var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(2)));
-        if (!ReferenceEquals(completed, loadTask) && usingFifo)
-        {
-            // Ensure a blocked reader cannot outlive the test if this ever regresses.
-            await using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
-        }
 
         Assert.Same(loadTask, completed);
 
         var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
-        if (usingFifo)
+        Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LoadAsync_LinuxFifo_FailsClosedBeforeOpening()
+    {
+        if (!OperatingSystem.IsLinux())
         {
-            Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
+            return;
         }
-        else
+
+        using var temp = new TempDirectory();
+        var path = Path.Combine(temp.Path, "targets.yaml");
+        if (!await TryCreateFifoAsync(path))
         {
-            Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
+            return;
         }
+
+        var loadTask = TargetsFile.LoadAsync(path);
+        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(2)));
+        if (!ReferenceEquals(completed, loadTask))
+        {
+            await using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+        }
+
+        Assert.Same(loadTask, completed);
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
+        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
