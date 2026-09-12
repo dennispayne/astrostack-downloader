@@ -66,9 +66,9 @@ public static class TargetsFile
     private static TargetsDocument Parse(string yamlText, string? path)
     {
         var stream = new YamlStream();
+        using var reader = new StringReader(yamlText);
         try
         {
-            using var reader = new StringReader(yamlText);
             stream.Load(reader);
         }
         // YamlDotNet's representation-model loader can surface malformed mapping shapes (for example,
@@ -239,6 +239,7 @@ public static class TargetsFile
                     foreach (YamlNode entryNode in allowlistSequence.Children)
                     {
                         string? item = ScalarOrNull(entryNode, "allowlist", InvalidAllowlistReasonCode);
+                        // A YAML null is scalar-shaped but cannot round-trip through the string list.
                         if (item is null)
                         {
                             throw new TargetsFileValidationException(
