@@ -235,7 +235,14 @@ public static class TargetsFile
                     recipe = ScalarOrNull(value);
                     break;
                 case "lastAttempt":
-                    string? lastAttemptText = ScalarOrNull(value);
+                    if (value is not YamlScalarNode lastAttemptNode)
+                    {
+                        throw new TargetsFileValidationException(
+                            InvalidLastAttemptReasonCode,
+                            new FormatException("targets.yaml entry 'lastAttempt' must be a scalar."));
+                    }
+
+                    string? lastAttemptText = ScalarOrNull(lastAttemptNode);
                     lastAttempt = lastAttemptText is null
                         ? null
                         : ParseTimestamp(lastAttemptText);
@@ -251,9 +258,7 @@ public static class TargetsFile
 
         return new TargetEntry
         {
-            Name = name ?? throw new TargetsFileValidationException(
-                MissingNameReasonCode,
-                new FormatException("A targets.yaml entry is missing the required 'name' field.")),
+            Name = ValidateRequiredName(name),
             Id = id,
             ComponentId = componentId,
             State = state,
@@ -296,6 +301,13 @@ public static class TargetsFile
             throw new TargetsFileValidationException(InvalidLastAttemptReasonCode, ex);
         }
     }
+
+    private static string ValidateRequiredName(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? throw new TargetsFileValidationException(
+                MissingNameReasonCode,
+                new FormatException("A targets.yaml entry is missing the required 'name' field."))
+            : value;
 
     private static string? ScalarOrNull(YamlNode node)
     {

@@ -237,11 +237,13 @@ public class TargetsFileTests
     [InlineData("targets:\n  - name: nina\n    state: typo", "invalid-state")]
     [InlineData("targets:\n  - name: nina\n    state: []", "invalid-state")]
     [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp", "invalid-last-attempt")]
+    [InlineData("targets:\n  - name: nina\n    lastAttempt: []", "invalid-last-attempt")]
     [InlineData("? [invalid]\n: value", "invalid-key")]
     [InlineData("version: {}", "invalid-version")]
     [InlineData("targets: {}", "invalid-targets")]
     [InlineData("targets: [nina]", "invalid-target-entry")]
     [InlineData("targets:\n  - id: AstroStack.NINA", "missing-name")]
+    [InlineData("targets:\n  - name: \"   \"", "missing-name")]
     [InlineData("[]", "invalid-document-root")]
     public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml, string reasonCode)
     {
