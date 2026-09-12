@@ -103,9 +103,10 @@ public sealed partial class CommandRunner
 
         if (parsed.HasErrors)
         {
+            var parseErrorSecrets = ResolveCliAndEnvironmentSecrets(parsed);
             foreach (var error in parsed.Errors)
             {
-                _stderr.WriteLine($"wgfetch: {error}");
+                _stderr.WriteLine($"wgfetch: {SecretRedactor.Redact(error, parseErrorSecrets)}");
             }
 
             _stderr.WriteLine("Run 'wgfetch --help' for usage.");

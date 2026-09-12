@@ -487,6 +487,27 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task Config_unknown_subcommand_error_redacts_effective_environment_secrets()
+    {
+        using var temp = new TempDirectory();
+        const string envSecret = "environment-only-secret";
+        var environment = new Dictionary<string, string?>
+        {
+            ["CI"] = "true",
+            ["WGFETCH_AI_KEY"] = envSecret,
+        };
+        var (runner, _, stderr) = CreateRunner(environment: environment);
+
+        var exit = await runner.RunAsync(
+            ["config", envSecret, "--config", temp.Combine("config.json")],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.DoesNotContain(envSecret, stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("REDACTED", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Config_set_does_not_overwrite_a_malformed_existing_config()
     {
         using var temp = new TempDirectory();
