@@ -244,7 +244,7 @@ public static class ConfigFile
                     bufferSize: 1,
                     FileOptions.Asynchronous);
             }
-            catch (IOException)
+            catch (IOException exception) when (Abstractions.FileLockContention.IsContention(exception))
             {
                 await Task.Delay(LockRetryDelay, cancellationToken).ConfigureAwait(false);
             }

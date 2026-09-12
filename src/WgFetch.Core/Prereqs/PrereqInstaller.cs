@@ -375,7 +375,7 @@ public sealed class PrereqInstaller
                     bufferSize: 1,
                     FileOptions.Asynchronous);
             }
-            catch (IOException)
+            catch (IOException exception) when (FileLockContention.IsContention(exception))
             {
                 await Task.Delay(ManifestLockRetryDelay, cancellationToken).ConfigureAwait(false);
             }
