@@ -541,7 +541,7 @@ public class TargetsFileTests
     public async Task SaveAsync_RejectsFilesTooLargeForLoadAsync()
     {
         using var temp = new TempDirectory();
-        var path = temp.Combine("targets.yaml");
+        var path = temp.Combine("nested", "targets.yaml");
         var doc = new TargetsDocument
         {
             ExtraFields = new Dictionary<string, YamlNode>(StringComparer.Ordinal)
@@ -554,6 +554,7 @@ public class TargetsFileTests
 
         Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(path));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(path)));
     }
 
     [Fact]

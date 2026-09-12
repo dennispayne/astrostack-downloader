@@ -30,8 +30,11 @@ internal static class SafeUserFile
         }
     }
 
-    private sealed class SizeLimitedMemoryStream(int maxBytes, string description) : MemoryStream
+    private sealed class SizeLimitedMemoryStream(int maxBytes, string description)
+        : MemoryStream(Math.Min(maxBytes, DefaultInitialCapacity))
     {
+        private const int DefaultInitialCapacity = 64 * 1024;
+
         public override void Write(byte[] buffer, int offset, int count)
         {
             EnsureCanWrite(count);

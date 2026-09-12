@@ -134,13 +134,13 @@ public static class ConfigFile
     {
         SafeUserFile.ThrowIfPathContainsNul(path);
 
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        var temp = path + ".tmp";
         using var content = SafeUserFile.CreateBoundedBuffer(MaxConfigBytes, "config");
         await JsonSerializer
             .SerializeAsync(content, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
             .ConfigureAwait(false);
 
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var temp = path + ".tmp";
         content.Position = 0;
         await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
         {

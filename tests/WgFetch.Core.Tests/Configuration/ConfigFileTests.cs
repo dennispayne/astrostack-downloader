@@ -146,13 +146,14 @@ public sealed class ConfigFileTests
     public async Task SaveAsync_RejectsFilesTooLargeForLoadAsync()
     {
         using var temp = new TempDirectory();
-        var path = temp.Combine("config.json");
+        var path = temp.Combine("nested", "config.json");
         var config = new WgFetchConfig { OutputDirectory = new string('x', 1024 * 1024) };
 
         var ex = await Assert.ThrowsAsync<IOException>(() => ConfigFile.SaveAsync(config, path, CancellationToken.None));
 
         Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(path));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(path)));
     }
 
     [Fact]
