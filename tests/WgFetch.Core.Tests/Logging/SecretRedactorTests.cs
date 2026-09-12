@@ -38,6 +38,15 @@ public sealed class SecretRedactorTests
         Assert.DoesNotContain("hunter2-secret-value", redacted, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Redacts_a_short_explicitly_registered_secret_value()
+    {
+        var redacted = SecretRedactor.Redact("provider configured with abc now", ["abc"]);
+
+        Assert.DoesNotContain("abc", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("https://api.search.example/search?q=nina&key=supersecretvalue", "supersecretvalue")]
     [InlineData("https://api.example/v1?access_token=abcdef123456", "abcdef123456")]

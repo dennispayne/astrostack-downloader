@@ -51,7 +51,10 @@ public static partial class SecretRedactor
         {
             foreach (var secret in knownSecrets)
             {
-                if (!string.IsNullOrWhiteSpace(secret) && secret.Length >= 4)
+                // No minimum length here: a configured credential must never appear in output even
+                // when it is short, which can occasionally over-redact an unrelated short substring
+                // that happens to match it (docs/REQUIREMENTS.md, "Privacy").
+                if (!string.IsNullOrWhiteSpace(secret))
                 {
                     result = result.Replace(secret, Placeholder, StringComparison.Ordinal);
                     result = result.Replace(Uri.EscapeDataString(secret), Placeholder, StringComparison.Ordinal);
