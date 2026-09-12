@@ -386,7 +386,11 @@ public sealed class PrereqInstaller
     /// Loads previously installed model entries from the manifest, so a selective install never drops
     /// the record of models installed in an earlier run. A missing or malformed manifest yields none,
     /// and any null entry (a manifest can be arbitrary JSON, e.g. <c>{"models":[null]}</c>) is dropped
-    /// rather than propagated, so a later merge never dereferences a null model.
+    /// rather than propagated, so a later merge never dereferences a null model. Only malformed JSON is
+    /// tolerated as an empty manifest: a transient <see cref="IOException"/> or
+    /// <see cref="UnauthorizedAccessException"/> reading an existing manifest propagates instead, so the
+    /// subsequent merge-and-write never overwrites a manifest we failed to read, which would otherwise
+    /// silently drop every previously recorded model.
     /// </summary>
     private static async Task<IReadOnlyList<PrereqInstalledModel>> LoadExistingManifestModelsAsync(
         string manifestPath,
@@ -405,7 +409,7 @@ public sealed class PrereqInstaller
                 .ConfigureAwait(false);
             return manifest?.Models?.Where(model => model is not null).ToArray() ?? [];
         }
-        catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
+        catch (JsonException)
         {
             return [];
         }

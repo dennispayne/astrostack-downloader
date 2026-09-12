@@ -223,6 +223,22 @@ public sealed class ConfigRedactionTests
     }
 
     [Fact]
+    public void Redacted_scrubs_a_configured_secret_that_is_form_encoded_with_a_plus_for_space()
+    {
+        const string secret = "a b";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            AiEndpoint = "https://ai.example/v1?foo=a+b",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain("a+b", redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Redacted_scrubs_even_a_short_configured_secret_from_every_string_field()
     {
         const string secret = "abc";

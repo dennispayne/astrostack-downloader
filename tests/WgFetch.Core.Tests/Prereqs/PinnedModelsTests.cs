@@ -267,6 +267,35 @@ public sealed class PinnedModelsTests
     }
 
     [Fact]
+    public async Task Selective_install_propagates_a_manifest_read_failure_instead_of_overwriting_it()
+    {
+        using var temp = new TempDirectory();
+        var manifestPath = Path.Combine(temp.Path, "install-manifest.json");
+        await File.WriteAllTextAsync(
+            manifestPath,
+            """{"installedUtc":"2024-01-01T00:00:00Z","models":[{"id":"unselected","repository":"r","revision":"v","files":[]}]}""",
+            CancellationToken.None);
+
+        var bytes = "selected model"u8.ToArray();
+        var selected = TestModel("selected", "https://models.example/selected.bin", bytes);
+        var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [selected]);
+
+        // Hold the manifest exclusively so the read inside InstallAsync fails with an IOException
+        // (a sharing violation), simulating a transient read failure rather than malformed JSON.
+        using (new FileStream(manifestPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => installer.InstallAsync(
+                temp.Path, new HashSet<string>([selected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+        }
+
+        // The pre-existing manifest content must survive the failed install untouched.
+        var manifest = await File.ReadAllTextAsync(manifestPath, CancellationToken.None);
+        Assert.Contains("\"id\":\"unselected\"", manifest.Replace(" ", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"selected\"", manifest, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Concurrent_selective_installs_into_the_same_root_never_drop_each_others_manifest_entry()
     {
         using var temp = new TempDirectory();
