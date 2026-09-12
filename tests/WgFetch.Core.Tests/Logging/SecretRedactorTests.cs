@@ -98,6 +98,16 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void Redacts_an_encoded_known_secret_in_a_valueless_query_component()
+    {
+        var redacted = SecretRedactor.RedactUrl("https://host.example/?%61%62%63", ["abc"]);
+
+        Assert.DoesNotContain("%61%62%63", redacted, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("abc", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Recognises_sensitive_configuration_field_names()
     {
         Assert.True(SecretRedactor.IsSensitiveFieldName("githubToken"));

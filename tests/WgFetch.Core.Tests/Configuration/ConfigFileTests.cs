@@ -150,6 +150,32 @@ public sealed class ConfigFileTests
     }
 
     [Fact]
+    public async Task Update_propagates_a_read_failure_instead_of_replacing_the_file()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { Scope = "user", AiKey = "ai-secret" },
+            path,
+            CancellationToken.None);
+
+        // Hold the file exclusively so the read inside the update fails: File.Exists also reports
+        // false for an unreadable file, which must never be mistaken for a missing one.
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => ConfigFile.TryUpdateAsync(
+                path,
+                config => config with { LogLevel = "debug" },
+                CancellationToken.None));
+        }
+
+        var reloaded = await ConfigFile.LoadAsync(path, CancellationToken.None);
+        Assert.Equal("user", reloaded.Scope);
+        Assert.Equal("ai-secret", reloaded.AiKey);
+        Assert.Null(reloaded.LogLevel);
+    }
+
+    [Fact]
     public async Task Saving_persists_credentials()
     {
         using var temp = new TempDirectory();
@@ -392,8 +418,20 @@ public sealed class ConfigRedactionTests
     }
 
     [Fact]
-    public void A_configured_secret_never_survives_redaction_of_arbitrary_text()
+    public void Redacted_removes_token_shaped_values_from_endpoints()
     {
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = "https://ai.example/v1/sk-abcdefghijklmnop123",
+            SearchEndpoint = "https://search.example/v1?project=ghp_abcdefghijklmnop123",
+        }.Redacted();
+
+        Assert.DoesNotContain("sk-abcdefghijklmnop123", config.AiEndpoint!, StringComparison.Ordinal);
+        Assert.DoesNotContain("ghp_abcdefghijklmnop123", config.SearchEndpoint!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_configured_secret_never_survives_redaction_of_arbitrary_text()    {
         var config = WithSecrets();
 
         var redacted = SecretRedactor.Redact(

@@ -396,22 +396,31 @@ public sealed class PrereqInstaller
         string manifestPath,
         CancellationToken cancellationToken)
     {
-        if (!File.Exists(manifestPath))
+        FileStream stream;
+        try
+        {
+            // File.Exists also reports false for an existing but unreadable manifest, so open it
+            // directly and treat only a genuinely missing file as an empty manifest.
+            stream = File.OpenRead(manifestPath);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
             return [];
         }
 
-        try
+        await using (stream.ConfigureAwait(false))
         {
-            await using var stream = File.OpenRead(manifestPath);
-            var manifest = await JsonSerializer
-                .DeserializeAsync(stream, PrereqJsonContext.Default.PrereqInstallManifest, cancellationToken)
-                .ConfigureAwait(false);
-            return manifest?.Models?.Where(model => model is not null).ToArray() ?? [];
-        }
-        catch (JsonException)
-        {
-            return [];
+            try
+            {
+                var manifest = await JsonSerializer
+                    .DeserializeAsync(stream, PrereqJsonContext.Default.PrereqInstallManifest, cancellationToken)
+                    .ConfigureAwait(false);
+                return manifest?.Models?.Where(model => model is not null).ToArray() ?? [];
+            }
+            catch (JsonException)
+            {
+                return [];
+            }
         }
     }
 

@@ -106,11 +106,13 @@ public static partial class SecretRedactor
             for (var i = 0; i < parts.Length; i++)
             {
                 var eq = parts[i].IndexOf('=');
-                if (eq <= 0)
+                if (eq < 0)
                 {
-                    if (eq < 0 && ContainsSecret(DecodeQueryComponent(parts[i]), secrets))
+                    // A valueless component carries no name to preserve, so replace it wholesale: the
+                    // secret may be encoded in a form that a textual replacement would not match.
+                    if (ContainsSecret(DecodeQueryComponent(parts[i]), secrets))
                     {
-                        parts[i] = RedactKnownSecrets(parts[i], secrets);
+                        parts[i] = Placeholder;
                     }
 
                     continue;

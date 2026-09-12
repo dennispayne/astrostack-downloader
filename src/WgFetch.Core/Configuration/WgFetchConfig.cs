@@ -123,9 +123,11 @@ public sealed record WgFetchConfig
         // Endpoints are URLs that may carry a configured credential as a query value or userinfo,
         // percent- or form-encoded (+ for space) differently than Uri.EscapeDataString would produce
         // above; decode and compare query values before falling back to the generic string redaction.
+        // The URL-aware pass is followed by the generic redaction so token-shaped values that are not
+        // configured secrets (e.g. an "sk-" key in the path) are redacted too.
         string? RedactEndpoint(string? value) =>
             value is not null && Uri.TryCreate(value, UriKind.Absolute, out var uri) && !uri.IsFile
-                ? Logging.SecretRedactor.RedactUrl(value, secrets)
+                ? Redact(Logging.SecretRedactor.RedactUrl(value, secrets))
                 : Redact(value);
 
         return this with
@@ -188,7 +190,7 @@ public static class ConfigFile
         CancellationToken cancellationToken)
     {
         await using var transactionLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
-        var current = await LoadAsync(path, cancellationToken).ConfigureAwait(false);
+        var current = await LoadForUpdateAsync(path, cancellationToken).ConfigureAwait(false);
         var updated = update(current);
         if (updated is null)
         {
@@ -197,6 +199,40 @@ public static class ConfigFile
 
         await SaveUnlockedAsync(updated, path, cancellationToken).ConfigureAwait(false);
         return updated;
+    }
+
+    /// <summary>
+    /// Reads the config for a read-modify-write cycle. Unlike <see cref="LoadAsync"/>, which is
+    /// deliberately lenient, only a genuinely missing file yields defaults: an existing file we fail to
+    /// read (for example an ACL or sharing failure, which <see cref="File.Exists"/> also reports as
+    /// missing) propagates instead of being replaced by the caller's write, which would otherwise
+    /// silently discard persisted settings and credentials.
+    /// </summary>
+    private static async Task<WgFetchConfig> LoadForUpdateAsync(string path, CancellationToken cancellationToken)
+    {
+        FileStream stream;
+        try
+        {
+            stream = File.OpenRead(path);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return new WgFetchConfig();
+        }
+
+        await using (stream.ConfigureAwait(false))
+        {
+            try
+            {
+                return await JsonSerializer
+                    .DeserializeAsync(stream, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
+                    .ConfigureAwait(false) ?? new WgFetchConfig();
+            }
+            catch (JsonException)
+            {
+                return new WgFetchConfig();
+            }
+        }
     }
 
     private static async Task SaveUnlockedAsync(
