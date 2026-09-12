@@ -83,12 +83,14 @@ public sealed class CommandLineParserTests
         var canonical = CommandLineParser.Parse(["prereqs", "install", "--models-root", root]);
         var legacy = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias]);
         var both = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias, "--models-root", root]);
+        var bothReversed = CommandLineParser.Parse(["prereqs", "install", "--models-root", root, "--models-dir", alias]);
 
         Assert.False(canonical.HasErrors);
         Assert.False(legacy.HasErrors);
         Assert.Equal(root, RunSettings.Resolve(canonical, new WgFetchConfig()).ModelsRoot);
         Assert.Equal(alias, RunSettings.Resolve(legacy, new WgFetchConfig()).ModelsRoot);
         Assert.Equal(root, RunSettings.Resolve(both, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(root, RunSettings.Resolve(bothReversed, new WgFetchConfig()).ModelsRoot);
     }
 
     [Fact]
