@@ -299,20 +299,11 @@ public sealed class CommandRunnerTests
         Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task NoCommand_ZeroByteEmbeddingAsset_IsNotReportedPresent() =>
-        await AssertInvalidSizedEmbeddingAssetIsNotReportedPresent(firstAssetSize: 0);
-
-    [Fact]
-    public async Task NoCommand_OversizedEmbeddingAsset_IsNotReportedPresent()
+    [Theory]
+    [MemberData(nameof(InvalidSizedEmbeddingAssets))]
+    public async Task NoCommand_InvalidSizedEmbeddingAsset_IsNotReportedPresent(string sizeCase, long firstAssetSize)
     {
-        Assert.True(PinnedModels.Embedding.Assets[0].SizeBytes.HasValue, "The oversized regression requires a sized first asset.");
-        await AssertInvalidSizedEmbeddingAssetIsNotReportedPresent(
-            PinnedModels.Embedding.Assets[0].SizeBytes.GetValueOrDefault() + 1);
-    }
-
-    private static async Task AssertInvalidSizedEmbeddingAssetIsNotReportedPresent(long firstAssetSize)
-    {
+        Assert.False(string.IsNullOrWhiteSpace(sizeCase));
         using var temp = new TempDirectory();
         await TargetsFile.SaveAsync(
             new TargetsDocument
@@ -340,6 +331,17 @@ public sealed class CommandRunnerTests
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains(PrereqsNotInstalled, stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    public static TheoryData<string, long> InvalidSizedEmbeddingAssets()
+    {
+        Assert.True(PinnedModels.Embedding.Assets[0].SizeBytes.HasValue, "The oversized regression requires a sized first asset.");
+        var pinnedSize = PinnedModels.Embedding.Assets[0].SizeBytes.GetValueOrDefault();
+        return new TheoryData<string, long>
+        {
+            { "zero-byte", 0 },
+            { "oversized", pinnedSize + 1 },
+        };
     }
 
     [Fact]
@@ -437,6 +439,7 @@ public sealed class CommandRunnerTests
             }
             else if (firstAssetSizeOverride.HasValue && i == 0)
             {
+                Assert.True(firstAssetSizeOverride.Value >= 0, "Sparse asset size overrides must be non-negative.");
                 size = firstAssetSizeOverride.Value;
             }
 
