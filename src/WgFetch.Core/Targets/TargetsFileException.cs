@@ -33,6 +33,7 @@ public sealed class TargetsFileException : Exception
     private static string BuildMessage(string? path, Exception innerException, string? reasonCode = null)
     {
         string prefix = $"failed to parse targets file{(path is null ? string.Empty : $" '{EscapeForSingleLineDisplay(path)}'")}: ";
+        // YamlDotNet 18 reports Mark.Line and Mark.Column as one-based coordinates.
         return innerException is YamlException yamlException
             ? $"{prefix}invalid YAML at line {yamlException.Start.Line}, column {yamlException.Start.Column}{RenderReasonCodeSuffix(reasonCode ?? InvalidDocumentReasonCode)}."
             : $"{prefix}invalid targets document (reason: {reasonCode ?? InvalidDocumentReasonCode}).";
