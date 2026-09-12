@@ -440,7 +440,26 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("unreadable or malformed", stderr.ToString(), StringComparison.Ordinal);
-        Assert.Contains("referenced file", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("re-add your targets", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Command_MalformedFromFile_UsesInputFileGuidance()
+    {
+        using var temp = new TempDirectory();
+        var inputPath = temp.Combine("apps.yaml");
+        await File.WriteAllTextAsync(inputPath, "targets: [\n", CancellationToken.None);
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(new StringWriter(), stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Combine("source") },
+        });
+
+        var exit = await runner.RunAsync(["add", "--from-file", inputPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("input file", stderr.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("re-add your targets", stderr.ToString(), StringComparison.Ordinal);
     }
 

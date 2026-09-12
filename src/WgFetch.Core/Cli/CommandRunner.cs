@@ -119,7 +119,7 @@ public sealed partial class CommandRunner
         catch (TargetsFileException ex)
         {
             _stderr.WriteLine($"wgfetch: {TerminalSafe(ex.Message)}");
-            _stderr.WriteLine("Fix the referenced file by hand, or move it aside and retry.");
+            _stderr.WriteLine(TargetsFileGuidance(ex));
             return ExitCode.UsageError;
         }
         finally
@@ -299,6 +299,12 @@ public sealed partial class CommandRunner
 
         _stderr.WriteLine("Run 'wgfetch --help' for usage.");
     }
+
+    private static string TargetsFileGuidance(TargetsFileException exception) =>
+        exception.FilePath is { Length: > 0 } path &&
+        string.Equals(Path.GetFileName(path), SourceLayout.TargetsFileName, StringComparison.OrdinalIgnoreCase)
+            ? "Fix targets.yaml by hand, or move it aside before retrying the command."
+            : "Fix the input file by hand, or move it aside before retrying the command.";
 
     private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings)
     {

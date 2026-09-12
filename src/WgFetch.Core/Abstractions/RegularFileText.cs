@@ -113,7 +113,7 @@ internal static class RegularFileText
             throw error switch
             {
                 NoSuchFileOrDirectory => new FileNotFoundException(null, path),
-                NotADirectory => new IOException("path contains a non-directory component."),
+                NotADirectory => new IOException($"path '{path}' contains a non-directory component."),
                 PermissionDenied => new UnauthorizedAccessException($"Access to '{path}' is denied."),
                 IsADirectory => new IOException("path is not a regular file."),
                 _ => new IOException($"unable to open the file (errno {error})."),
@@ -303,7 +303,7 @@ internal static class RegularFileText
 
         private static Exception CreatePathNotFoundException(string path) =>
             HasNonDirectoryParentComponent(path)
-                ? new IOException("path contains a non-directory component.")
+                ? new IOException($"path '{path}' contains a non-directory component.")
                 : new DirectoryNotFoundException($"Could not find a part of the path '{path}'.");
 
         private static bool HasNonDirectoryParentComponent(string path)
