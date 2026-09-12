@@ -439,7 +439,8 @@ public sealed class PrereqInstaller
             }
 
             HttpResponseSpec? response = null;
-            for (var hop = 0; hop <= MaxRedirects; hop++)
+            var redirectCount = 0;
+            while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 response = await _http
@@ -474,13 +475,14 @@ public sealed class PrereqInstaller
                     return null;
                 }
 
-                currentUrl = next;
-
-                if (hop == MaxRedirects)
+                if (redirectCount >= MaxRedirects)
                 {
                     _logger.LogError("Model download for {Asset} exceeded {Max} redirects.", asset.RelativePath, MaxRedirects);
                     return null;
                 }
+
+                redirectCount++;
+                currentUrl = next;
             }
 
             if (response is null)

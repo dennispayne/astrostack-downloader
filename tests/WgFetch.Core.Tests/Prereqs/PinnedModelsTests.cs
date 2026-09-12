@@ -259,6 +259,103 @@ public sealed class PinnedModelsTests
     }
 
     [Fact]
+    public async Task Install_refuses_a_redirect_to_a_host_that_merely_ends_with_an_allowlisted_suffix()
+    {
+        // "evilhuggingface.co" ends with "huggingface.co" as a raw string suffix but is not a
+        // subdomain of it (no separating '.'), so it must be rejected rather than treated as trusted.
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var lookalikeUrl = "https://evilhuggingface.co/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(lookalikeUrl))
+            .Map(lookalikeUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.DoesNotContain(http.Requests, request => string.Equals(request.Url.ToString(), lookalikeUrl, StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_follows_a_redirect_to_a_subdomain_of_an_allowlisted_host()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var subdomainUrl = "https://region1.cdn-lfs.huggingface.co/repos/abc/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(subdomainUrl))
+            .Map(subdomainUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal([candidateUrl, subdomainUrl], http.Requests.Select(request => request.Url.ToString()));
+        Assert.True(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_follows_exactly_five_allowlisted_redirects_then_refuses_a_sixth()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        // hop0 (candidate) -> hop1 -> ... -> hop5 succeeds (5 redirects followed).
+        var urls = Enumerable.Range(0, 6)
+            .Select(i => $"https://huggingface.co/redirect-chain/{i}")
+            .ToArray();
+        var model = TestModel("redirected", urls[0], bytes);
+        var http = new StubHttpGateway();
+        for (var i = 0; i < urls.Length - 1; i++)
+        {
+            http.Map(urls[i], StubResponse.Redirect(urls[i + 1]));
+        }
+
+        http.Map(urls[^1], StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(urls, http.Requests.Select(request => request.Url.ToString()));
+    }
+
+    [Fact]
+    public async Task Install_refuses_a_chain_of_six_redirects()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        // hop0 (candidate) -> hop1 -> ... -> hop6: 6 redirects, one more than the cap of 5.
+        var urls = Enumerable.Range(0, 7)
+            .Select(i => $"https://huggingface.co/redirect-chain/{i}")
+            .ToArray();
+        var model = TestModel("redirected", urls[0], bytes);
+        var http = new StubHttpGateway();
+        for (var i = 0; i < urls.Length - 1; i++)
+        {
+            http.Map(urls[i], StubResponse.Redirect(urls[i + 1]));
+        }
+
+        http.Map(urls[^1], StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.DoesNotContain(http.Requests, request => string.Equals(request.Url.ToString(), urls[^1], StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
     public async Task Selective_install_merges_with_a_previously_installed_model_in_the_manifest()
     {
         using var temp = new TempDirectory();
