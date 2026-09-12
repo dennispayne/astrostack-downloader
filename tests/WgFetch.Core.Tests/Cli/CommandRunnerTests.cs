@@ -375,6 +375,8 @@ public sealed class CommandRunnerTests
 
     private static void WriteSparseEmbeddingAssets(string modelsRoot, bool truncateFirstAsset = false)
     {
+        // QuickReady is intentionally metadata-only for startup latency; these sparse files exercise its
+        // size checks without hashing or writing model-sized byte content.
         for (var i = 0; i < PinnedModels.Embedding.Assets.Count; i++)
         {
             var asset = PinnedModels.Embedding.Assets[i];
