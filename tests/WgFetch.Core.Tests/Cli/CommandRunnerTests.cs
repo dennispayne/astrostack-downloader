@@ -378,7 +378,8 @@ public sealed class CommandRunnerTests
             var asset = PinnedModels.Embedding.Assets[i];
             var path = Path.Combine(PrereqInstaller.ModelDirectory(modelsRoot, PinnedModels.Embedding), asset.RelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var size = asset.SizeBytes!.Value;
+            Assert.True(asset.SizeBytes.HasValue, $"The sparse fixture requires a pinned size for {asset.RelativePath}.");
+            var size = asset.SizeBytes.Value;
             if (truncateFirstAsset && i == 0)
             {
                 Assert.True(size > 0, "The truncated-asset regression requires a non-empty pinned asset.");
