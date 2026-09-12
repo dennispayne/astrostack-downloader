@@ -116,6 +116,7 @@ public sealed partial class CommandRunner
             {
                 Ansi = AnsiSupport.No,
                 ColorSystem = ColorSystemSupport.NoColors,
+                // Plain controls rendering only; the attached terminal must still accept prompts.
                 Interactive = InteractionSupport.Yes,
                 Out = new AnsiConsoleOutput(output),
             })

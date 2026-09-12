@@ -121,10 +121,11 @@ public static partial class SecretRedactor
                 var rawName = parts[i][..eq];
                 var rawValue = parts[i][(eq + 1)..];
                 var name = DecodeQueryComponent(rawName);
+                var value = DecodeQueryComponent(rawValue);
                 var secretInName = ContainsSecret(name, secrets);
                 if (SensitiveQueryKeys.Contains(name) ||
                     secretInName ||
-                    ContainsSecret(DecodeQueryComponent(rawValue), secrets))
+                    ContainsSecret(value, secrets))
                 {
                     parts[i] = (secretInName ? Placeholder : rawName) + "=" + Placeholder;
                 }
