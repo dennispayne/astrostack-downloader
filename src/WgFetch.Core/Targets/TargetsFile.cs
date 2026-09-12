@@ -57,8 +57,12 @@ public static class TargetsFile
             stream.Load(reader);
         }
         // YamlDotNet's representation-model loader can surface malformed mapping shapes (for example,
-        // duplicate keys) as ArgumentException rather than YamlException.
-        catch (Exception ex) when (ex is YamlException or ArgumentException)
+        // duplicate keys) as ArgumentException rather than YamlException. Restrict the broader catch
+        // to ArgumentException instances originating from YamlDotNet frames.
+        catch (Exception ex) when (
+            ex is YamlException ||
+            ex is ArgumentException argumentException &&
+            IsYamlRepresentationModelArgumentException(argumentException))
         {
             throw new TargetsFileException(path, ex, TargetsFileException.InvalidDocumentReasonCode);
         }
@@ -279,6 +283,9 @@ public static class TargetsFile
                 InvalidKeyReasonCode,
                 new FormatException("targets.yaml keys must be scalar values."));
     }
+
+    private static bool IsYamlRepresentationModelArgumentException(ArgumentException ex) =>
+        ex.StackTrace?.Contains("YamlDotNet", StringComparison.Ordinal) == true;
 
     private sealed class TargetsFileValidationException(string reasonCode, Exception innerException)
         : FormatException("Invalid targets document.", innerException)
