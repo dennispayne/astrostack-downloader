@@ -343,6 +343,7 @@ public sealed class CommandRunnerTests
         {
             { "zero-byte", 0 },
             { "oversized", FirstEmbeddingAssetSize() + 1 },
+            { "substantially-oversized", FirstEmbeddingAssetSize() + (1024 * 1024) },
         };
     }
 
