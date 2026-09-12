@@ -111,7 +111,9 @@ public static partial class SecretRedactor
             // OAuth-style responses carry credentials in the fragment (for example
             // "#access_token=..."), which never reaches the query pass, so the same sensitive-key
             // handling is applied here (docs/REQUIREMENTS.md, "Privacy").
-            var fragmentBody = rawFragment.TrimStart('#');
+            // Some callbacks render the fragment as "#?token=..."; drop that separator too so the
+            // parameter names are matched rather than treated as part of the first key.
+            var fragmentBody = rawFragment.TrimStart('#').TrimStart('?');
             var redactedFragment = RedactParameters(fragmentBody, secrets);
             if (!string.Equals(redactedFragment, fragmentBody, StringComparison.Ordinal))
             {

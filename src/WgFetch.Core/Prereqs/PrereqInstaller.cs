@@ -451,8 +451,10 @@ public sealed class PrereqInstaller
                     !IsAllowedDownloadHost(currentUrl.Host))
                 {
                     _logger.LogError(
-                        "Model download for {Asset} targeted a non-HTTPS or non-allowlisted host '{Host}'.",
+                        "Model download for {Asset} targeted a non-allowlisted destination '{Scheme}://{Host}'; " +
+                        "only HTTPS requests to an allowlisted download host are permitted.",
                         asset.RelativePath,
+                        currentUrl.Scheme,
                         currentUrl.Host);
                     return null;
                 }

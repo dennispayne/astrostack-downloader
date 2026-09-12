@@ -153,6 +153,15 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void RedactUrl_redacts_a_sensitive_parameter_in_a_question_mark_prefixed_fragment()
+    {
+        var redacted = SecretRedactor.RedactUrl("https://host.example/callback#?access_token=arbitrary-secret");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RedactUrl_leaves_a_non_sensitive_fragment_untouched()
     {
         const string url = "https://host.example/docs#installation";
