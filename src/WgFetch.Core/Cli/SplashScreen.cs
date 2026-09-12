@@ -120,29 +120,8 @@ public static class SplashScreen
     }
 
     /// <summary>Formats one "label · value" status row with the column width every row shares.</summary>
-    private static string FormatLine(string label, string value) => $"{label,-18} ·  {Sanitize(value)}";
-
-    /// <summary>
-    /// Removes control characters from values that can be user-controlled (the source tree comes from
-    /// <c>--output</c>, the config file or <c>WGFETCH_OUTPUT</c>), so a crafted path can never inject
-    /// terminal escape sequences — the <c>--plain</c>/<c>NO_COLOR</c> output must stay escape-free.
-    /// </summary>
-    private static string Sanitize(string value)
-    {
-        char[]? sanitized = null;
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (!char.IsControl(value[i]))
-            {
-                continue;
-            }
-
-            sanitized ??= value.ToCharArray();
-            sanitized[i] = '?';
-        }
-
-        return sanitized is null ? value : new string(sanitized);
-    }
+    private static string FormatLine(string label, string value) =>
+        $"{label,-18} ·  {TerminalTextSanitizer.Sanitize(value)}";
 
     private static string FormatElapsed(DateTimeOffset time, DateTimeOffset now)
     {

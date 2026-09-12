@@ -39,7 +39,7 @@ public sealed class ConfigFileTests
     {
         using var temp = new TempDirectory();
         var path = temp.Combine("config.json");
-        await File.WriteAllTextAsync(path, "{}");
+        await File.WriteAllTextAsync(path, """{ "outputDirectory": "/should-not-load" }""");
         await using var lockedConfig = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
         var config = await ConfigFile.LoadAsync(path, CancellationToken.None);

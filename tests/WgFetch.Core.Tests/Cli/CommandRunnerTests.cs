@@ -366,6 +366,28 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task Command_MalformedTargets_ErrorMessageIsTerminalSanitized()
+    {
+        using var temp = new TempDirectory();
+        var outputRoot = Path.Combine(temp.Path, "bad\u001bpath");
+        Directory.CreateDirectory(outputRoot);
+        await File.WriteAllTextAsync(Path.Combine(outputRoot, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(new StringWriter(), stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = outputRoot },
+        });
+
+        var exit = await runner.RunAsync(["status"], CancellationToken.None);
+
+        var rendered = stderr.ToString();
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unreadable or malformed", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b", rendered, StringComparison.Ordinal);
+        Assert.Contains("bad?path", rendered, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoCommand_Cancelled_ReturnsCancelledExitCode()
     {
         var (runner, _, stderr) = CreateRunner();
@@ -399,6 +421,27 @@ public sealed class CommandRunnerTests
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
         Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_InvalidConfigPathValue_ReturnsUsageErrorWithoutCrash()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            """{ "outputDirectory": "bad\u0000path" }""",
+            CancellationToken.None);
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(new StringWriter(), stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("invalid path in configuration or options", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
