@@ -363,7 +363,7 @@ public class TargetsFileTests
         // With statx the type check rejects the device outright; without it the read is still bounded.
         Assert.True(
             ex.Message.Contains("not a regular file", StringComparison.Ordinal) ||
-            ex.Message.Contains("MiB limit", StringComparison.Ordinal),
+            ex.Message.Contains("byte limit", StringComparison.Ordinal),
             ex.Message);
     }
 

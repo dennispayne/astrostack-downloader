@@ -28,10 +28,17 @@ internal static class RegularFileText
     /// <summary>
     /// Reads at most <paramref name="maxBytes"/>. A file type this build could not identify must still
     /// not be able to feed an endless stream into memory, so the cap — not the type check — is what
-    /// bounds the read.
+    /// bounds the read. When <paramref name="typeVerified"/> is false the reader also rejects a handle
+    /// that reports no length yet keeps returning bytes, which is how a character device such as
+    /// <c>/dev/zero</c> differs from a genuinely empty file.
     /// </summary>
-    private static async Task<string> ReadBoundedAsync(Stream stream, int maxBytes, CancellationToken cancellationToken)
+    private static async Task<string> ReadBoundedAsync(
+        Stream stream,
+        int maxBytes,
+        bool typeVerified,
+        CancellationToken cancellationToken)
     {
+        var lengthIsKnown = !typeVerified && stream.CanSeek && stream.Length > 0;
         using var content = new MemoryStream();
         var chunk = new byte[ChunkBytes];
         int read;
@@ -39,7 +46,12 @@ internal static class RegularFileText
         {
             if (content.Length + read > maxBytes)
             {
-                throw new IOException($"file is larger than the {maxBytes / (1024 * 1024)} MiB limit.");
+                throw new IOException($"file is larger than the {maxBytes} byte limit.");
+            }
+
+            if (!typeVerified && !lengthIsKnown)
+            {
+                throw new IOException("path is not a regular file.");
             }
 
             content.Write(chunk, 0, read);
@@ -89,8 +101,8 @@ internal static class RegularFileText
             // From here the stream owns the descriptor and closes it on dispose.
             await using (stream.ConfigureAwait(false))
             {
-                EnsureRegularFile(handle, stream);
-                return await ReadBoundedAsync(stream, maxBytes, cancellationToken).ConfigureAwait(false);
+                var typeVerified = EnsureRegularFile(handle, stream);
+                return await ReadBoundedAsync(stream, maxBytes, typeVerified, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -116,20 +128,20 @@ internal static class RegularFileText
         }
 
         /// <summary>
-        /// Rejects anything not shown to be a regular file. <c>statx</c> answers directly; when it is
-        /// missing or refused, seekability stands in for it — a FIFO or socket is never seekable, and an
-        /// unseekable handle is exactly the case that could otherwise report an empty document or block.
+        /// Rejects anything not shown to be a regular file and reports whether the file type itself was
+        /// established. <c>statx</c> answers directly; when it is missing or refused, seekability rules
+        /// out the hazards that can block or masquerade as an empty document — a FIFO or socket is never
+        /// seekable — and the caller tightens the read for the types seekability cannot separate.
         /// </summary>
-        private static void EnsureRegularFile(SafeFileHandle handle, FileStream stream)
+        private static bool EnsureRegularFile(SafeFileHandle handle, FileStream stream)
         {
-            var regular = LinuxFileType.TryGetIsRegular(handle, out var isRegular)
-                ? isRegular
-                : stream.CanSeek;
-
-            if (!regular)
+            var typeVerified = LinuxFileType.TryGetIsRegular(handle, out var isRegular);
+            if (typeVerified ? !isRegular : !stream.CanSeek)
             {
                 throw new IOException("path is not a regular file.");
             }
+
+            return typeVerified;
         }
 
         [DllImport("libc", EntryPoint = "open", SetLastError = true)]
