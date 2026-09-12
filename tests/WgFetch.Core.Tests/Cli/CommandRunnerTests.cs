@@ -429,11 +429,21 @@ public sealed class CommandRunnerTests
             var asset = PinnedModels.Embedding.Assets[i];
             var path = Path.Combine(PrereqInstaller.ModelDirectory(modelsRoot, PinnedModels.Embedding), asset.RelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            Assert.True(asset.SizeBytes.HasValue, $"The sparse fixture requires a pinned size for {asset.RelativePath}.");
-            var size = asset.SizeBytes.Value;
+            if (asset.SizeBytes is not { } size)
+            {
+                throw new InvalidOperationException($"The sparse fixture requires a pinned size for {asset.RelativePath}.");
+            }
+
             if (firstAssetSizeOverride.HasValue && i == 0)
             {
-                Assert.True(firstAssetSizeOverride.Value >= 0, "Sparse asset size overrides must be non-negative.");
+                if (firstAssetSizeOverride.Value < 0)
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(firstAssetSizeOverride),
+                        firstAssetSizeOverride.Value,
+                        "Sparse asset size overrides must be non-negative.");
+                }
+
                 size = firstAssetSizeOverride.Value;
             }
 
