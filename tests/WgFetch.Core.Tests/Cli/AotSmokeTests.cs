@@ -103,7 +103,7 @@ public sealed class AotSmokeTests
     }
 
     [Fact]
-    public async Task PublishedBinary_RendersLandingWhenAttachedToConsole()
+    public async Task PublishedBinary_ExecutesInteractiveLandingWhenAttachedToConsole()
     {
         if (!HasBinary || Console.IsOutputRedirected)
         {
