@@ -1,4 +1,5 @@
 using WgFetch.Core.Cli;
+using WgFetch.Core.Configuration;
 
 namespace WgFetch.Core.Tests.Cli;
 
@@ -120,6 +121,27 @@ public sealed class CommandLineParserTests
         Assert.False(CommandLineParser.Parse(["prereqs", "install"]).HasErrors);
         Assert.Equal("install", CommandLineParser.Parse(["prereqs", "install"]).SubCommand);
         Assert.True(CommandLineParser.Parse(["prereqs", "reinstall"]).HasErrors);
+    }
+
+    [Fact]
+    public void Prereqs_accepts_models_root()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wgfetch-models-root");
+        var alias = Path.Combine(Path.GetTempPath(), "wgfetch-models-dir");
+
+        var canonical = CommandLineParser.Parse(["prereqs", "install", "--models-root", root]);
+        var legacy = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias]);
+        var both = CommandLineParser.Parse(["prereqs", "install", "--models-dir", alias, "--models-root", root]);
+        var bothReversed = CommandLineParser.Parse(["prereqs", "install", "--models-root", root, "--models-dir", alias]);
+
+        Assert.False(canonical.HasErrors);
+        Assert.False(legacy.HasErrors);
+        Assert.False(both.HasErrors);
+        Assert.False(bothReversed.HasErrors);
+        Assert.Equal(root, RunSettings.Resolve(canonical, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(alias, RunSettings.Resolve(legacy, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(root, RunSettings.Resolve(both, new WgFetchConfig()).ModelsRoot);
+        Assert.Equal(root, RunSettings.Resolve(bothReversed, new WgFetchConfig()).ModelsRoot);
     }
 
     [Fact]
