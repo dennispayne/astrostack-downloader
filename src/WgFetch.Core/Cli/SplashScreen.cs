@@ -33,11 +33,11 @@ public static class SplashScreen
         DateTimeOffset? now = null,
         string? targetsError = null)
     {
-        // The rocket's roof is drawn with literal backslashes. Markup.Escape() is Spectre's documented
-        // API for embedding characters that are meaningful to its own escaping (`[`/`]`); using it here
-        // - even though a bare backslash needs no escaping - makes the three occurrences below
-        // unambiguous rather than relying on where the closing "[/]" tag happens to land.
-        var backslash = Markup.Escape("\\");
+        // The rocket's roof is drawn with literal backslashes right up against a closing "[/]" tag.
+        // Spectre's markup grammar only treats "[" and "]" specially (escaped as "[[" / "]]"), so a
+        // bare backslash needs no escaping here and does not break the adjacent closing tag; the named
+        // constant below just keeps the three occurrences readable rather than inline C# string escapes.
+        const string backslash = "\\";
         var art = new Markup(
             "[#67e8f9]·[/]       [#6366f1]⋆[/]       [#67e8f9]·[/]          [#6366f1]✦[/]\n" +
             " [#6366f1]✦[/]      [#67e8f9]·[/]              [#67e8f9]/" + backslash + "[/]\n" +
