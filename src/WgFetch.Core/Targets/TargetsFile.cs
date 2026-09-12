@@ -64,7 +64,7 @@ public static class TargetsFile
 
             if (key == VersionKey && child.Value is YamlScalarNode versionScalar)
             {
-                doc.Version = int.Parse(versionScalar.Value ?? "1", CultureInfo.InvariantCulture);
+                doc.Version = ParseVersion(versionScalar.Value);
             }
             else if (key == TargetsKey && child.Value is YamlSequenceNode targetsSequence)
             {
@@ -196,6 +196,23 @@ public static class TargetsFile
         key is YamlScalarNode scalar
             ? scalar.Value ?? string.Empty
             : throw new FormatException("targets.yaml mapping keys must be scalar.");
+
+    /// <summary>
+    /// Parses the top-level <c>version</c> scalar. Wraps <see cref="OverflowException"/> alongside
+    /// the usual non-numeric case so every malformed-content path surfaces as the same
+    /// <see cref="FormatException"/> callers already expect from this file.
+    /// </summary>
+    private static int ParseVersion(string? value)
+    {
+        try
+        {
+            return int.Parse(value ?? "1", CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException)
+        {
+            throw new FormatException($"targets.yaml 'version' must be a valid integer, got '{value}'.", ex);
+        }
+    }
 
     private static string? ScalarOrNull(YamlNode node)
     {

@@ -14,14 +14,15 @@ public static class SplashScreen
         TargetsDocument? targets,
         string outputDirectory,
         bool prerequisitesInstalled,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        string? targetsError = null)
     {
         ArgumentNullException.ThrowIfNull(writer);
 
         writer.WriteLine("wgfetch");
         writer.WriteLine("resolve • verify • download");
         writer.WriteLine();
-        WriteStatus(writer, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow);
+        WriteStatus(writer, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError);
     }
 
     /// <summary>Builds the colored interactive splash using Spectre.Console.</summary>
@@ -29,9 +30,14 @@ public static class SplashScreen
         TargetsDocument? targets,
         string outputDirectory,
         bool prerequisitesInstalled,
-        DateTimeOffset? now = null)
+        DateTimeOffset? now = null,
+        string? targetsError = null)
     {
-        const string backslash = "\\";
+        // The rocket's roof is drawn with literal backslashes. Markup.Escape() is Spectre's documented
+        // API for embedding characters that are meaningful to its own escaping (`[`/`]`); using it here
+        // - even though a bare backslash needs no escaping - makes the three occurrences below
+        // unambiguous rather than relying on where the closing "[/]" tag happens to land.
+        var backslash = Markup.Escape("\\");
         var art = new Markup(
             "[#67e8f9]·[/]       [#6366f1]⋆[/]       [#67e8f9]·[/]          [#6366f1]✦[/]\n" +
             " [#6366f1]✦[/]      [#67e8f9]·[/]              [#67e8f9]/" + backslash + "[/]\n" +
@@ -52,7 +58,7 @@ public static class SplashScreen
             .Padding(3, 1);
 
         var status = new StringWriter(CultureInfo.InvariantCulture);
-        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow);
+        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError);
         return new Rows(panel, new Text(status.ToString()));
     }
 
@@ -61,8 +67,16 @@ public static class SplashScreen
         TargetsDocument? targets,
         string outputDirectory,
         bool prerequisitesInstalled,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? targetsError)
     {
+        if (targetsError is not null)
+        {
+            writer.WriteLine($"{"Targets",-18} ·  {targetsError} {"Prereqs",-10} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
+            writer.WriteLine($"{"Source tree",-18} ·  {outputDirectory}");
+            return;
+        }
+
         if (targets is null)
         {
             writer.WriteLine("Get started: run 'wgfetch prereqs install', then 'wgfetch add <app>'.");
@@ -70,13 +84,13 @@ public static class SplashScreen
         }
 
         var acquired = targets.Targets.Count(target => target.State == TargetState.Acquired);
-        DateTimeOffset? lastFetch = targets.Targets.Count == 0
+        DateTimeOffset? lastAttempt = targets.Targets.Count == 0
             ? null
             : targets.Targets.Select(target => target.LastAttempt).Max();
 
         writer.WriteLine($"{"Targets acquired",-18} ·  {acquired,-7} {"Prereqs",-10} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
         writer.WriteLine($"{"Source tree",-18} ·  {outputDirectory}");
-        writer.WriteLine($"{"Last fetch",-18} ·  {(lastFetch is null ? "never" : FormatElapsed(lastFetch.Value, now))}");
+        writer.WriteLine($"{"Last attempt",-18} ·  {(lastAttempt is null ? "never" : FormatElapsed(lastAttempt.Value, now))}");
     }
 
     private static string FormatElapsed(DateTimeOffset time, DateTimeOffset now)

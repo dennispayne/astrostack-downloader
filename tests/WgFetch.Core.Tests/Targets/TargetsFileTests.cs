@@ -126,6 +126,31 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public void Parse_OversizedVersionScalar_FailsClosedWithFormatException()
+    {
+        const string yaml = """
+            version: 99999999999999999999
+            targets: []
+            """;
+
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+        Assert.Contains("version", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<OverflowException>(ex.InnerException);
+    }
+
+    [Fact]
+    public void Parse_NonNumericVersionScalar_FailsClosedWithFormatException()
+    {
+        const string yaml = """
+            version: not-a-number
+            targets: []
+            """;
+
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+        Assert.Contains("version", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Add_IsIdempotent_AndCaseInsensitive()
     {
         var doc = new TargetsDocument();

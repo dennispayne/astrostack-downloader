@@ -61,8 +61,25 @@ public sealed class SplashScreenTests
 
         Assert.Contains("Targets acquired", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("·  0", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Last fetch", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Last attempt", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("never", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Plain_TargetsError_ShowsErrorInsteadOfFirstRunHint()
+    {
+        var output = new StringWriter();
+
+        SplashScreen.WritePlain(
+            output,
+            targets: null,
+            "/source",
+            prerequisitesInstalled: false,
+            targetsError: "unable to read targets.yaml");
+
+        Assert.Contains("unable to read targets.yaml", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("/source", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -81,5 +98,22 @@ public sealed class SplashScreenTests
         Assert.Contains("╭", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("resolve  •  verify  •  download", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("\u001b[38;2;99;102;241m", output.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Interactive_RendersRocketRoofBackslashesWithoutThrowing()
+    {
+        var output = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.Yes,
+            ColorSystem = ColorSystemSupport.TrueColor,
+            Out = new AnsiConsoleOutput(output),
+        });
+
+        console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesInstalled: false));
+
+        var rendered = output.ToString();
+        Assert.Equal(3, rendered.Count(c => c == '\\'));
     }
 }

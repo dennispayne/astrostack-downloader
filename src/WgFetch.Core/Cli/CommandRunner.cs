@@ -179,18 +179,23 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> ShowLandingAsync(ParsedCommandLine parsed, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
-        var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
-        var environment = BuildTerminalEnvironment(settings);
-        var terminal = TerminalCapability.Detect(environment);
 
-        if (settings.Json || environment.OutputRedirected)
+        // --json and redirected stdout must retain the parser's usage-error output verbatim, and this
+        // check must happen before any --config or targets.yaml I/O so a bad/unreadable --config path
+        // can never suppress it (both --json and redirection are pure CLI-flag/environment facts).
+        if (parsed.Has("--json") || IsOutputRedirected())
         {
             WriteUsageErrors(parsed);
             return ExitCode.UsageError;
         }
 
+        var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
+        var environment = BuildTerminalEnvironment(settings);
+        var terminal = TerminalCapability.Detect(environment);
+
         TargetsDocument? targets = null;
+        string? targetsError = null;
         var targetsPath = TargetsPath(settings);
         try
         {
@@ -201,10 +206,13 @@ public sealed partial class CommandRunner
         }
         catch (Exception ex) when (ex is IOException or FormatException or YamlException)
         {
-            _stderr.WriteLine("wgfetch: unable to read targets.yaml.");
+            targetsError = "unable to read targets.yaml";
+            _stderr.WriteLine($"wgfetch: {targetsError}.");
         }
 
-        var prerequisitesInstalled = File.Exists(Path.Combine(settings.ModelsRoot, "install-manifest.json"));
+        var prerequisiteStatuses = await PrereqInstaller.StatusAsync(settings.ModelsRoot, cancellationToken)
+            .ConfigureAwait(false);
+        var prerequisitesInstalled = prerequisiteStatuses.Count > 0 && prerequisiteStatuses.All(model => model.Ready);
         if (terminal == TerminalMode.Interactive)
         {
             var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -216,7 +224,8 @@ public sealed partial class CommandRunner
                 targets,
                 settings.OutputDirectory,
                 prerequisitesInstalled,
-                _dependencies.TimeProvider.GetUtcNow()));
+                _dependencies.TimeProvider.GetUtcNow(),
+                targetsError));
             console.WriteLine();
         }
         else
@@ -226,13 +235,21 @@ public sealed partial class CommandRunner
                 targets,
                 settings.OutputDirectory,
                 prerequisitesInstalled,
-                _dependencies.TimeProvider.GetUtcNow());
+                _dependencies.TimeProvider.GetUtcNow(),
+                targetsError);
         }
 
         _stdout.WriteLine();
         _stdout.Write(CommandLineParser.RenderHelp());
         return ExitCode.UsageError;
     }
+
+    /// <summary>
+    /// Whether stdout is redirected, honouring the injected <see cref="TerminalEnvironment"/> fixture
+    /// when present so this stays hermetically testable without touching <c>--config</c> or settings.
+    /// </summary>
+    private bool IsOutputRedirected() =>
+        _dependencies.TerminalEnvironment?.OutputRedirected ?? Console.IsOutputRedirected;
 
     private void WriteUsageErrors(ParsedCommandLine parsed)
     {

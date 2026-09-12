@@ -96,9 +96,11 @@ public sealed class CommandRunnerTests
     [Fact]
     public async Task NoCommand_Interactive_ShowsSplashAndExistingHelp()
     {
+        using var temp = new TempDirectory();
         var stdout = new StringWriter();
         var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
         {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
             TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
         });
 
@@ -136,6 +138,40 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task NoCommand_ManifestPresentButAssetsMissing_ShowsNotInstalled()
+    {
+        // A bare install-manifest.json with none of the pinned model files on disk must never be
+        // reported as "installed": readiness comes from PrereqInstaller.StatusAsync verifying every
+        // pinned asset, not from the manifest's mere existence (a partial or wiped install is not ready).
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var modelsRoot = temp.Combine("models");
+        Directory.CreateDirectory(modelsRoot);
+        await File.WriteAllTextAsync(Path.Combine(modelsRoot, "install-manifest.json"), "{}", CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("not installed", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoCommand_Json_WritesUsageErrorToStandardError()
     {
         var stdout = new StringWriter();
@@ -156,9 +192,11 @@ public sealed class CommandRunnerTests
     [Fact]
     public async Task NoCommand_Plain_ShowsColorlessSplash()
     {
+        using var temp = new TempDirectory();
         var stdout = new StringWriter();
         var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
         {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
             TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
         });
 
@@ -220,7 +258,8 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync([], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
         Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
     }
 
@@ -247,7 +286,8 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync([], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
         Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
     }
 
