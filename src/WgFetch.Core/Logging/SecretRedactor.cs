@@ -150,7 +150,7 @@ public static partial class SecretRedactor
         return result;
     }
 
-    /// <summary>Recognizes credential-bearing AWS <c>X-Amz-*</c> and Google <c>X-Goog-*</c> signed CDN parameters.</summary>
+    /// <summary>Conservatively redacts query keys containing common credential-signing fragments, including non-secret metadata.</summary>
     private static bool IsSensitiveQueryKey(string name) =>
         SensitiveQueryKeys.Contains(name) ||
         SensitiveQueryFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
