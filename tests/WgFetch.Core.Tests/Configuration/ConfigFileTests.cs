@@ -135,7 +135,7 @@ public sealed class ConfigFileTests
             FileAccess.ReadWrite,
             FileShare.None);
 
-        var update = ConfigFile.UpdateAsync(
+        var update = ConfigFile.TryUpdateAsync(
             path,
             config => config with { LogLevel = "debug" },
             CancellationToken.None);

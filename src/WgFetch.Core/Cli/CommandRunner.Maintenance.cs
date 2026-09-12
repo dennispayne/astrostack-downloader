@@ -83,29 +83,26 @@ public sealed partial class CommandRunner
                     return ExitCode.UsageError;
                 }
 
-                if (!ConfigSettings.TrySet(config, parsed.Positional[0], parsed.Positional[1], out var updated, out var setError))
+                string? setError = null;
+                var updated = await ConfigFile.TryUpdateAsync(
+                    path,
+                    current =>
+                    {
+                        var success = ConfigSettings.TrySet(
+                            current,
+                            parsed.Positional[0],
+                            parsed.Positional[1],
+                            out var latest,
+                            out setError);
+                        return success ? latest : null;
+                    },
+                    cancellationToken).ConfigureAwait(false);
+                if (updated is null)
                 {
                     _stderr.WriteLine($"wgfetch config set: {setError}");
                     return ExitCode.UsageError;
                 }
 
-                await ConfigFile.UpdateAsync(
-                    path,
-                    current =>
-                    {
-                        if (!ConfigSettings.TrySet(
-                            current,
-                            parsed.Positional[0],
-                            parsed.Positional[1],
-                            out var latest,
-                            out var updateError))
-                        {
-                            throw new InvalidOperationException(updateError);
-                        }
-
-                        return latest;
-                    },
-                    cancellationToken).ConfigureAwait(false);
                 Report($"{parsed.Positional[0]}: saved");
                 Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "saved" });
                 return ExitCode.Success;
@@ -117,28 +114,25 @@ public sealed partial class CommandRunner
                     return ExitCode.UsageError;
                 }
 
-                if (!ConfigSettings.TryUnset(config, parsed.Positional[0], out var without, out var unsetError))
+                string? unsetError = null;
+                var without = await ConfigFile.TryUpdateAsync(
+                    path,
+                    current =>
+                    {
+                        var success = ConfigSettings.TryUnset(
+                            current,
+                            parsed.Positional[0],
+                            out var latest,
+                            out unsetError);
+                        return success ? latest : null;
+                    },
+                    cancellationToken).ConfigureAwait(false);
+                if (without is null)
                 {
                     _stderr.WriteLine($"wgfetch config unset: {unsetError}");
                     return ExitCode.UsageError;
                 }
 
-                await ConfigFile.UpdateAsync(
-                    path,
-                    current =>
-                    {
-                        if (!ConfigSettings.TryUnset(
-                            current,
-                            parsed.Positional[0],
-                            out var latest,
-                            out var updateError))
-                        {
-                            throw new InvalidOperationException(updateError);
-                        }
-
-                        return latest;
-                    },
-                    cancellationToken).ConfigureAwait(false);
                 Report($"{parsed.Positional[0]}: unset");
                 Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "unset" });
                 return ExitCode.Success;

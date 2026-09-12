@@ -173,14 +173,19 @@ public static class ConfigFile
         await SaveUnlockedAsync(config, path, cancellationToken).ConfigureAwait(false);
     }
 
-    public static async Task<WgFetchConfig> UpdateAsync(
+    public static async Task<WgFetchConfig?> TryUpdateAsync(
         string path,
-        Func<WgFetchConfig, WgFetchConfig> update,
+        Func<WgFetchConfig, WgFetchConfig?> update,
         CancellationToken cancellationToken)
     {
         await using var transactionLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
         var current = await LoadAsync(path, cancellationToken).ConfigureAwait(false);
         var updated = update(current);
+        if (updated is null)
+        {
+            return null;
+        }
+
         await SaveUnlockedAsync(updated, path, cancellationToken).ConfigureAwait(false);
         return updated;
     }
@@ -252,6 +257,9 @@ public static class ConfigFile
         var directory = Path.GetDirectoryName(fullPath)!;
         var existed = Directory.Exists(directory);
         Directory.CreateDirectory(directory);
+        // The default directory is dedicated to wgfetch credentials and is always private. A caller
+        // may place --config in an existing shared directory, whose permissions we must not rewrite;
+        // the config file itself is still replaced with owner-only permissions.
         if (!OperatingSystem.IsWindows() &&
             (!existed || string.Equals(fullPath, Path.GetFullPath(DefaultPath), StringComparison.Ordinal)))
         {
