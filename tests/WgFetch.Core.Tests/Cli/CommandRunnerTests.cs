@@ -511,6 +511,47 @@ public sealed class CommandRunnerTests
         Assert.DoesNotContain(pathSecret, stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("aiKey")]
+    [InlineData("search-key")]
+    [InlineData("github-token")]
+    public async Task Config_set_redacts_the_pending_credential_when_the_update_fails(string name)
+    {
+        using var temp = new TempDirectory();
+        const string pendingSecret = "pending-secret-value";
+        var secretDirectory = temp.Combine(pendingSecret);
+        Directory.CreateDirectory(secretDirectory);
+        var configPath = Path.Combine(secretDirectory, "config.json");
+        await File.WriteAllTextAsync(configPath, "{ this is not json", CancellationToken.None);
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(
+            ["config", "set", name, pendingSecret, "--config", configPath],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.ConfigurationError, exit);
+        Assert.DoesNotContain(pendingSecret, stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("REDACTED", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Config_set_redacts_the_pending_credential_when_initial_config_load_fails()
+    {
+        using var temp = new TempDirectory();
+        const string pendingSecret = "pending-secret-value";
+        var configPath = temp.Combine(pendingSecret);
+        Directory.CreateDirectory(configPath);
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(
+            ["config", "set", "aiKey", pendingSecret, "--config", configPath],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.ConfigurationError, exit);
+        Assert.DoesNotContain(pendingSecret, stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("REDACTED", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Config_set_reports_a_configuration_error_instead_of_crashing_for_an_invalid_config_path()
     {

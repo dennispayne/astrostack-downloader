@@ -192,6 +192,39 @@ public sealed class PrereqInstaller
         return combined;
     }
 
+    private static void RejectReparsePointComponents(string root, string target, string description)
+    {
+        var normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var normalizedTarget = Path.GetFullPath(target);
+        var relativeToRoot = Path.GetRelativePath(normalizedRoot, normalizedTarget);
+        if (relativeToRoot == "." || Path.IsPathRooted(relativeToRoot))
+        {
+            return;
+        }
+
+        var current = normalizedRoot;
+        foreach (var part in relativeToRoot.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(current);
+            }
+            catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+            {
+                continue;
+            }
+
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidOperationException($"Refusing to use {description}: '{current}' is a symbolic link or reparse point.");
+            }
+        }
+    }
+
     /// <summary>Reports presence, paths, sizes and verification state for every pinned model.</summary>
     public static Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
         string modelsRoot,
@@ -208,10 +241,12 @@ public sealed class PrereqInstaller
         foreach (var model in models ?? PinnedModels.All)
         {
             var directory = ModelDirectory(modelsRoot, model);
+            RejectReparsePointComponents(modelsRoot, directory, $"model directory for '{model.Id}'");
             var assets = new List<PrereqAssetStatus>();
             foreach (var asset in model.Assets)
             {
                 var path = ResolveConfinedPath(directory, asset.RelativePath, $"asset relative path '{asset.RelativePath}'");
+                RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
                 if (!File.Exists(path))
                 {
                     assets.Add(new PrereqAssetStatus(asset.RelativePath, path, PrereqState.Missing, null, null));
@@ -281,6 +316,7 @@ public sealed class PrereqInstaller
             }
 
             var directory = ModelDirectory(modelsRoot, model);
+            RejectReparsePointComponents(modelsRoot, directory, $"model directory for '{model.Id}'");
 
             if (!model.FullyPinned)
             {
@@ -299,12 +335,16 @@ public sealed class PrereqInstaller
             }
 
             Directory.CreateDirectory(directory);
+            RejectReparsePointComponents(modelsRoot, directory, $"model directory for '{model.Id}'");
             var files = new List<PrereqInstalledFile>();
 
             foreach (var asset in model.Assets)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var path = ResolveConfinedPath(directory, asset.RelativePath, $"asset relative path '{asset.RelativePath}'");
+                RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
                 if (File.Exists(path))
                 {
                     var existing = await InstallerDownloader.ComputeSha256Async(path, cancellationToken).ConfigureAwait(false);
@@ -315,6 +355,7 @@ public sealed class PrereqInstaller
                     }
                 }
 
+                RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
                 var downloaded = await DownloadVerifiedAsync(asset, path, cancellationToken).ConfigureAwait(false);
                 if (downloaded is null)
                 {

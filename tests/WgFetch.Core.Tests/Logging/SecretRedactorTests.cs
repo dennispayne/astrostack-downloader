@@ -86,6 +86,15 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void Redacts_mixed_case_scheme_urls_embedded_in_free_text()
+    {
+        var redacted = SecretRedactor.Redact("searching via HTTPS://api.example/search?api_key=topsecretkey now");
+
+        Assert.DoesNotContain("topsecretkey", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Redacts_form_encoded_known_secrets_inside_urls_embedded_in_free_text()
     {
         var redacted = SecretRedactor.Redact(

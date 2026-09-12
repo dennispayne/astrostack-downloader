@@ -49,7 +49,7 @@ public static partial class SecretRedactor
     [GeneratedRegex(@"(?i)\b(bearer)\s+[A-Za-z0-9\-\._~\+/=]{8,}", RegexOptions.CultureInvariant)]
     private static partial Regex BearerPattern();
 
-    [GeneratedRegex(@"https?://[^\s""'<>]+", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"https?://[^\s""'<>]+", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
     private static partial Regex UrlPattern();
 
     /// <summary>True when a configuration or provenance field name holds a secret.</summary>

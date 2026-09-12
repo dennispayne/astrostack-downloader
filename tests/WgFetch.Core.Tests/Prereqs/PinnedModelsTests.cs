@@ -216,6 +216,25 @@ public sealed class PinnedModelsTests
     }
 
     [Fact]
+    public async Task Status_rejects_an_existing_asset_symlink()
+    {
+        using var temp = new TempDirectory();
+        var modelDirectory = temp.Combine("demo-model");
+        Directory.CreateDirectory(modelDirectory);
+        var outside = temp.Combine("outside.bin");
+        await File.WriteAllTextAsync(outside, "outside", CancellationToken.None);
+        if (!TryCreateFileSymlink(Path.Combine(modelDirectory, "model.bin"), outside))
+        {
+            return;
+        }
+
+        var model = TestModel("demo-model", "https://huggingface.co/test/model.bin", "bytes"u8.ToArray());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PrereqInstaller.StatusAsync(temp.Path, [model], CancellationToken.None));
+    }
+
+    [Fact]
     public async Task Install_rejects_a_model_id_that_escapes_the_models_root_before_touching_the_network()
     {
         using var temp = new TempDirectory();
@@ -229,6 +248,59 @@ public sealed class PinnedModelsTests
             temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
 
         Assert.Empty(http.Requests);
+    }
+
+    [Fact]
+    public async Task Install_rejects_a_model_directory_symlink_before_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var outside = temp.Combine("outside");
+        Directory.CreateDirectory(outside);
+        var link = temp.Combine("linked-model");
+        if (!TryCreateDirectorySymlink(link, outside))
+        {
+            return;
+        }
+
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = TestModel("linked-model", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+        Assert.False(File.Exists(Path.Combine(outside, "model.bin")));
+    }
+
+    [Fact]
+    public async Task Install_rejects_an_asset_parent_symlink_before_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var modelDirectory = temp.Combine("demo-model");
+        Directory.CreateDirectory(modelDirectory);
+        var outside = temp.Combine("outside");
+        Directory.CreateDirectory(outside);
+        if (!TryCreateDirectorySymlink(Path.Combine(modelDirectory, "nested"), outside))
+        {
+            return;
+        }
+
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = new PinnedModel(
+            "demo-model", "demo-model", "test/repository", "revision", IsLanguageModel: false,
+            [new ModelAsset("nested/model.bin", url, bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+        Assert.False(File.Exists(Path.Combine(outside, "model.bin")));
     }
 
     [Theory]
@@ -565,4 +637,30 @@ public sealed class PinnedModelsTests
     private static PinnedModel TestModel(string id, string url, byte[] bytes) =>
         new(id, id, "test/repository", "revision", IsLanguageModel: false,
         [new ModelAsset("model.bin", url, bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);
+
+    private static bool TryCreateDirectorySymlink(string linkPath, string targetPath)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(linkPath, targetPath);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateFileSymlink(string linkPath, string targetPath)
+    {
+        try
+        {
+            File.CreateSymbolicLink(linkPath, targetPath);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
 }

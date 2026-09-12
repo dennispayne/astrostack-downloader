@@ -92,6 +92,9 @@ public sealed partial class CommandRunner
                 }
 
                 string? setError = null;
+                var setRedactionSecrets = IsConfigCredentialName(parsed.Positional[0])
+                    ? IncludeSecret(redactionSecrets, parsed.Positional[1])
+                    : redactionSecrets;
                 var (updated, setInvalidConfig) = await TryUpdateConfigAsync(
                     path,
                     current =>
@@ -104,7 +107,7 @@ public sealed partial class CommandRunner
                             out setError);
                         return success ? latest : null;
                     },
-                    redactionSecrets,
+                    setRedactionSecrets,
                     cancellationToken).ConfigureAwait(false);
                 if (setInvalidConfig is not null)
                 {
@@ -162,6 +165,9 @@ public sealed partial class CommandRunner
                 return ExitCode.UsageError;
         }
     }
+
+    private static bool IsConfigCredentialName(string name) =>
+        name.Replace("-", string.Empty, StringComparison.Ordinal).ToLowerInvariant() is "aikey" or "searchkey" or "githubtoken";
 
     private static async Task<(WgFetchConfig? Updated, string? InvalidConfigMessage)> TryUpdateConfigAsync(
         string path,

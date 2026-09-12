@@ -38,7 +38,8 @@ public sealed partial class CommandRunner
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RenderConfig(console, current, redactionSecrets);
+            var currentRedactionSecrets = IncludeConfigSecrets(redactionSecrets, current);
+            RenderConfig(console, current, currentRedactionSecrets);
             var choice = console.Prompt(
                 new SelectionPrompt<string>()
                     .Title("Select a setting to edit, or manage model prerequisites")
@@ -50,7 +51,7 @@ public sealed partial class CommandRunner
 
             if (choice == ModelPrerequisitesChoice)
             {
-                var prereqExit = await ManagePrerequisitesAsync(console, current, path, redactionSecrets, cancellationToken).ConfigureAwait(false);
+                var prereqExit = await ManagePrerequisitesAsync(console, current, path, currentRedactionSecrets, cancellationToken).ConfigureAwait(false);
                 if (prereqExit != ExitCode.Success)
                 {
                     return prereqExit;
@@ -80,13 +81,16 @@ public sealed partial class CommandRunner
                 }
                 catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
                 {
-                    var display = Logging.SecretRedactor.Redact(value, redactionSecrets);
+                    var display = Logging.SecretRedactor.Redact(value, currentRedactionSecrets);
                     console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(display)}");
                     continue;
                 }
             }
 
             string? updateError = null;
+            var updateRedactionSecrets = SecretSettingNames.Contains(choice)
+                ? IncludeSecret(currentRedactionSecrets, value)
+                : currentRedactionSecrets;
             var (persisted, invalidConfig) = await TryUpdateConfigAsync(
                 path,
                 latest =>
@@ -99,7 +103,7 @@ public sealed partial class CommandRunner
 
                     return merged;
                 },
-                redactionSecrets,
+                updateRedactionSecrets,
                 cancellationToken).ConfigureAwait(false);
             if (invalidConfig is not null)
             {
@@ -116,6 +120,21 @@ public sealed partial class CommandRunner
             console.MarkupLine("[green]Saved.[/]");
         }
     }
+
+    private static IReadOnlyList<string> IncludeConfigSecrets(IEnumerable<string> redactionSecrets, WgFetchConfig config) =>
+        redactionSecrets
+            .Concat([config.AiKey, config.SearchKey, config.GithubToken])
+            .Where(secret => !string.IsNullOrWhiteSpace(secret))
+            .Select(secret => secret!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    private static IReadOnlyList<string> IncludeSecret(IEnumerable<string> redactionSecrets, string secret) =>
+        redactionSecrets
+            .Append(secret)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
     internal static IAnsiConsole CreateInteractiveConsole(TextWriter output, bool plainRendering) =>
         AnsiConsole.Create(new AnsiConsoleSettings
@@ -205,7 +224,7 @@ public sealed partial class CommandRunner
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or ArgumentException or NotSupportedException or PathTooLongException)
+            or ArgumentException or NotSupportedException or PathTooLongException or InvalidOperationException)
         {
             var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
             console.MarkupLine($"[red]Unable to check pinned model files:[/] {Markup.Escape(display)}");
@@ -301,7 +320,7 @@ public sealed partial class CommandRunner
                 .ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-            or ArgumentException or NotSupportedException or PathTooLongException)
+            or ArgumentException or NotSupportedException or PathTooLongException or InvalidOperationException)
         {
             var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
             console.MarkupLine($"[red]Unable to install pinned model files:[/] {Markup.Escape(display)}");

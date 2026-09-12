@@ -18,6 +18,7 @@ public sealed class CommandRunnerInteractiveConfigTests
     // make these tests select the wrong menu item.
     private static readonly List<string> SettingNames = ConfigSettings.Names.ToList();
     private static readonly int OutputDirectoryIndex = SettingNames.IndexOf("outputDirectory");
+    private static readonly int ModelsRootIndex = SettingNames.IndexOf("modelsRoot");
     private static readonly int AiKeyIndex = SettingNames.IndexOf("aiKey");
     private static readonly int ModelPrerequisitesIndex = SettingNames.Count;
     private static readonly int ExitIndex = SettingNames.Count + 1;
@@ -100,6 +101,33 @@ public sealed class CommandRunnerInteractiveConfigTests
         Assert.DoesNotContain("super-secret-ai-key", console.Output, StringComparison.Ordinal);
         var saved = await ConfigFile.LoadAsync(configPath, CancellationToken.None);
         Assert.Equal("super-secret-ai-key", saved.AiKey);
+    }
+
+    [Fact]
+    public async Task Interactive_direct_redaction_uses_a_newly_saved_credential()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        var secret = "interactive-secret-value";
+        var secretPath = temp.Combine(secret);
+        await File.WriteAllTextAsync(secretPath, "not a directory", CancellationToken.None);
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, AiKeyIndex);
+        console.Input.PushTextWithEnter(secret);
+        SelectByIndex(console, ModelsRootIndex);
+        console.Input.PushTextWithEnter(secretPath);
+        SelectByIndex(console, ExitIndex);
+        var (runner, _, _) = CreateInteractiveRunner(console);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("Cannot create directory", console.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            console.Output.Split(Environment.NewLine),
+            line => line.Contains("Cannot create directory", StringComparison.OrdinalIgnoreCase)
+                && line.Contains(secret, StringComparison.Ordinal));
+        Assert.Contains("REDACTED", console.Output, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

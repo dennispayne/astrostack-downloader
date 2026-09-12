@@ -264,15 +264,27 @@ public sealed partial class CommandRunner
                 parsed.Value("--github-token"),
                 Lookup(RunSettings.GithubTokenEnvironmentVariable),
             }
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value!)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+        .Concat(PendingConfigSetCredential(parsed))
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Select(value => value!)
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
         return secrets;
 
         string? Lookup(string name) => _dependencies.Environment is null
             ? Environment.GetEnvironmentVariable(name)
             : _dependencies.Environment.TryGetValue(name, out var value) ? value : null;
+    }
+
+    private static IEnumerable<string?> PendingConfigSetCredential(ParsedCommandLine parsed)
+    {
+        if (parsed.Command == "config" &&
+            parsed.SubCommand == "set" &&
+            parsed.Positional.Count == 2 &&
+            IsConfigCredentialName(parsed.Positional[0]))
+        {
+            yield return parsed.Positional[1];
+        }
     }
 
     private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings) =>
