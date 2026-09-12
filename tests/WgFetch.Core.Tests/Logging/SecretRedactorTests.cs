@@ -85,6 +85,12 @@ public sealed class SecretRedactorTests
         Assert.False(SecretRedactor.IsSensitiveFieldName("aiEndpoint"));
     }
 
+    [Theory]
+    [InlineData("X-Auth")]
+    [InlineData("X-Authorization")]
+    public void Recognises_authentication_headers_as_sensitive(string name) =>
+        Assert.True(SecretRedactor.IsSensitiveHeaderName(name));
+
     [Fact]
     public void Handles_null_and_empty_input()
     {

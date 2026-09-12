@@ -123,6 +123,8 @@ public sealed class VerificationGateTests
             ["Ocp-Apim-Subscription-Key"] = "credential-value",
             ["X-Credential"] = "credential-value",
             ["X-Password"] = "credential-value",
+            ["X-Auth"] = "credential-value",
+            ["X-Authorization"] = "credential-value",
         };
 
         await using var result = await Gate(http).FollowAllowedRedirectsAsync(
@@ -139,6 +141,8 @@ public sealed class VerificationGateTests
         Assert.DoesNotContain("Ocp-Apim-Subscription-Key", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("X-Credential", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("X-Password", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Auth", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Authorization", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
