@@ -74,6 +74,21 @@ public sealed class VerificationGateTests
     }
 
     [Fact]
+    public async Task Redirect_follower_rejects_a_malformed_location_without_a_second_request()
+    {
+        const string url = "https://github.com/x/setup.exe";
+        var http = new StubHttpGateway().Map(url, StubResponse.Redirect("https://[::1"));
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.RequestFailed, result.FailureStatus);
+        Assert.Single(http.Requests);
+    }
+
+    [Fact]
     public async Task Redirect_follower_stops_at_the_configured_limit()
     {
         const string url = "https://github.com/loop";
@@ -106,6 +121,8 @@ public sealed class VerificationGateTests
             ["Cookie"] = "session=credential-value",
             ["X-Api-Key"] = "credential-value",
             ["Ocp-Apim-Subscription-Key"] = "credential-value",
+            ["X-Credential"] = "credential-value",
+            ["X-Password"] = "credential-value",
         };
 
         await using var result = await Gate(http).FollowAllowedRedirectsAsync(
@@ -120,6 +137,28 @@ public sealed class VerificationGateTests
         Assert.DoesNotContain("Cookie", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("X-Api-Key", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
         Assert.DoesNotContain("Ocp-Apim-Subscription-Key", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Credential", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Password", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Verification_logs_redacted_signed_redirect_urls()
+    {
+        const string source = "https://github.com/x/setup.exe";
+        var signature = new string('s', 32);
+        var target = $"https://objects.github.com/asset/setup.exe?X-Amz-Credential=credential-value&X-Amz-Signature={signature}";
+        var http = new StubHttpGateway()
+            .Map(source, StubResponse.Redirect(target))
+            .Map(target, StubResponse.Binary(FakeInstaller.PortableExecutable(), "application/x-unknown"));
+        var logger = new CapturingLogger();
+
+        var result = await new VerificationGate(http, new VerificationOptions(), logger)
+            .VerifyAsync(new Uri(source), Allowlist, CancellationToken.None);
+
+        var output = string.Join(Environment.NewLine, logger.Messages);
+        Assert.True(result.Accepted);
+        Assert.DoesNotContain("credential-value", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(signature, output, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -225,7 +225,7 @@ public sealed class VerificationGate
             _logger.LogDebug(
                 "Content-type '{ContentType}' for {Url} is unrecognised; deferring to magic bytes.",
                 contentType,
-                current);
+                Redact(current));
         }
 
         var chunk = await ReadChunkAsync(response.Body, MagicBytes.InspectionChunkSize, cancellationToken)
@@ -258,7 +258,7 @@ public sealed class VerificationGate
 
         if (length is null)
         {
-            _logger.LogDebug("No content length advertised for {Url}; length plausibility deferred to download.", current);
+            _logger.LogDebug("No content length advertised for {Url}; length plausibility deferred to download.", Redact(current));
         }
         else if (length < _options.MinimumInstallerBytes || length > _options.MaximumInstallerBytes)
         {
@@ -275,7 +275,7 @@ public sealed class VerificationGate
 
         _logger.LogInformation(
             "Verification accepted {Url} ({Format}, {Length} bytes, content-type '{ContentType}').",
-            current,
+            Redact(current),
             format,
             length,
             contentType);

@@ -88,9 +88,15 @@ public sealed class PrereqInstaller
     public static async Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
         string modelsRoot,
         CancellationToken cancellationToken)
+        => await StatusAsync(modelsRoot, PinnedModels.All, cancellationToken).ConfigureAwait(false);
+
+    private static async Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
+        string modelsRoot,
+        IReadOnlyList<PinnedModel> models,
+        CancellationToken cancellationToken)
     {
         var result = new List<PrereqModelStatus>();
-        foreach (var model in PinnedModels.All)
+        foreach (var model in models)
         {
             var directory = ModelDirectory(modelsRoot, model);
             var assets = new List<PrereqAssetStatus>();
@@ -219,7 +225,7 @@ public sealed class PrereqInstaller
                 cancellationToken).ConfigureAwait(false);
         }
 
-        var status = await StatusAsync(modelsRoot, cancellationToken).ConfigureAwait(false);
+        var status = await StatusAsync(modelsRoot, _models, cancellationToken).ConfigureAwait(false);
         return new PrereqInstallResult(success, messages, status);
     }
 

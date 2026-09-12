@@ -39,6 +39,7 @@ public sealed class PrereqInstallerTests
         Assert.Equal([sourceUrl, cdnUrl], http.Requests.Select(request => request.Url.ToString()));
         Assert.True(File.Exists(path));
         Assert.Equal(bytes, await File.ReadAllBytesAsync(path));
+        Assert.Equal([model.Id], result.Models.Select(status => status.ModelId));
     }
 
     [Fact]
