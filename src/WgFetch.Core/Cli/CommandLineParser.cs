@@ -8,7 +8,12 @@ public enum OptionArity
     MultiValue,
 }
 
-public sealed record OptionSpec(string Name, OptionArity Arity, string Description, string? EnvironmentVariable = null);
+public sealed record OptionSpec(
+    string Name,
+    OptionArity Arity,
+    string Description,
+    string? EnvironmentVariable = null,
+    IReadOnlyList<string>? AllowedValues = null);
 
 /// <summary>One wgfetch verb and the options it accepts.</summary>
 public sealed record CommandSpec(string Name, string Summary, IReadOnlyList<OptionSpec> Options, IReadOnlyList<string> SubCommands)
@@ -63,7 +68,7 @@ public static class CommandLineParser
 
     private static readonly OptionSpec[] GlobalOptions =
     [
-        new("--log-level", OptionArity.Value, "trace|debug|info|warn|error|none (default info)"),
+        ClosedValueOption("--log-level", ["trace", "debug", "info", "warn", "error", "none"], "(default info)"),
         new("--log-file", OptionArity.Value, "write structured logs to a file"),
         new("--json", OptionArity.Flag, "machine-readable events on stdout; human logging on stderr"),
         new("--verbose", OptionArity.Flag, "shorthand for --log-level debug"),
@@ -88,12 +93,12 @@ public static class CommandLineParser
         new("--models-root", OptionArity.Value, "root directory holding pinned models"),
         new("--recipe", OptionArity.Value, "path to a recipe file"),
         new("--recipe-inline", OptionArity.Value, "inline recipe expression"),
-        new("--arch", OptionArity.Value, "x64|x86|arm64 (default: host)"),
-        new("--scope", OptionArity.Value, "machine|user (default machine)"),
+        ClosedValueOption("--arch", ["x64", "x86", "arm64"], "(default: host)"),
+        ClosedValueOption("--scope", ["machine", "user"], "(default machine)"),
         new("--threshold", OptionArity.Value, "tier-1 confidence threshold"),
         new("--keep-versions", OptionArity.Value, "retention count (default 2)"),
         new("--require-hash-match", OptionArity.Flag, "upstream hash mismatch is fatal"),
-        new("--ai-mode", OptionArity.Value, "local|remote|auto (default local)"),
+        ClosedValueOption("--ai-mode", ["local", "remote", "auto"], "(default local)"),
         new("--ai-endpoint", OptionArity.Value, "OpenAI-compatible endpoint"),
         new("--ai-model", OptionArity.Value, "remote model name"),
         new("--ai-key", OptionArity.Value, "remote API key", "WGFETCH_AI_KEY"),
@@ -207,6 +212,19 @@ public static class CommandLineParser
                     value = args[++i];
                 }
 
+                if (spec.AllowedValues is { } allowed)
+                {
+                    var canonicalValue = allowed.FirstOrDefault(
+                        candidate => string.Equals(candidate, value, StringComparison.OrdinalIgnoreCase));
+                    if (canonicalValue is null)
+                    {
+                        errors.Add($"invalid value '{value}' for {name} (expected one of: {string.Join(", ", allowed)})");
+                        continue;
+                    }
+
+                    value = canonicalValue;
+                }
+
                 Append(options, name, value);
                 continue;
             }
@@ -295,6 +313,13 @@ public static class CommandLineParser
 
     private static IReadOnlyList<OptionSpec> Combine(IReadOnlyList<OptionSpec> options, params OptionSpec[] extra) =>
         options.Concat(extra).Concat(GlobalOptions).DistinctBy(o => o.Name, StringComparer.Ordinal).ToArray();
+
+    private static OptionSpec ClosedValueOption(string name, string[] allowedValues, string descriptionSuffix) =>
+        new(
+            name,
+            OptionArity.Value,
+            $"{string.Join('|', allowedValues)} {descriptionSuffix}",
+            AllowedValues: allowedValues);
 
     /// <summary>Renders help text. Must be produced without touching the filesystem or the network.</summary>
     public static string RenderHelp(string? command = null)
