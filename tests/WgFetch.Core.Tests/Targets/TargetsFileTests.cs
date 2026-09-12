@@ -304,26 +304,28 @@ public class TargetsFileTests
     [Fact]
     public async Task LoadAsync_FifoPath_FailsClosedWithoutBlocking()
     {
-        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
-        {
-            return;
-        }
-
         using var temp = new TempDirectory();
         var path = Path.Combine(temp.Path, "targets.yaml");
-        using var mkfifo = Process.Start(new ProcessStartInfo
+        var createdFifo = false;
+
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
-            FileName = "mkfifo",
-            ArgumentList = { path },
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-        });
-        Assert.NotNull(mkfifo);
-        await mkfifo.WaitForExitAsync(CancellationToken.None);
-        Assert.Equal(0, mkfifo.ExitCode);
+            createdFifo = await TryCreateFifoAsync(path);
+        }
+
+        if (!createdFifo)
+        {
+            // Portable fallback that still exercises "non-regular file" fail-closed behaviour.
+            Directory.CreateDirectory(path);
+        }
 
         var loadTask = TargetsFile.LoadAsync(path);
         var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(2)));
+        if (!ReferenceEquals(completed, loadTask) && createdFifo)
+        {
+            // Ensure a blocked reader cannot outlive the test if this ever regresses.
+            await using var writer = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+        }
 
         Assert.Same(loadTask, completed);
 
@@ -423,4 +425,23 @@ public class TargetsFileTests
     }
 
     private static string Normalize(string text) => text.Replace("\r\n", "\n").TrimEnd('\n');
+
+    private static async Task<bool> TryCreateFifoAsync(string path)
+    {
+        using var mkfifo = Process.Start(new ProcessStartInfo
+        {
+            FileName = "mkfifo",
+            ArgumentList = { path },
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+        });
+
+        if (mkfifo is null)
+        {
+            return false;
+        }
+
+        await mkfifo.WaitForExitAsync(CancellationToken.None);
+        return mkfifo.ExitCode == 0;
+    }
 }

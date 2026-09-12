@@ -47,37 +47,34 @@ public static class TargetsFile
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        try
+        if (OperatingSystem.IsLinux())
         {
-            // Probe with a read/write handle so FIFO/named-pipe paths can be classified as
-            // non-regular files without risking a blocking open on the read path.
-            using var probe = File.OpenHandle(
-                path,
-                FileMode.Open,
-                FileAccess.ReadWrite,
-                FileShare.ReadWrite | FileShare.Delete);
-            _ = RandomAccess.GetLength(probe);
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        {
-            // A missing file (or a missing parent directory) is not an error: it means no targets have
-            // been acquired yet.
-            return (new TargetsDocument(), false);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Read/write probing can fail on read-only files; the real read path below still decides
-            // whether the file is usable.
-        }
-        catch (NotSupportedException ex)
-        {
-            throw new TargetsFileException(
-                $"{path} is unreadable or malformed: path is not a regular file.",
-                ex) { FilePath = path };
-        }
-        catch (Exception ex) when (ex is IOException)
-        {
-            throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
+            try
+            {
+                using var probe = File.OpenHandle(
+                    path,
+                    FileMode.Open,
+                    FileAccess.ReadWrite,
+                    FileShare.ReadWrite | FileShare.Delete);
+                // RandomAccess.GetLength throws NotSupportedException on FIFOs/non-seekable handles.
+                _ = RandomAccess.GetLength(probe);
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                // A missing file (or a missing parent directory) is not an error: it means no targets
+                // have been acquired yet.
+                return (new TargetsDocument(), false);
+            }
+            catch (NotSupportedException ex)
+            {
+                throw new TargetsFileException(
+                    $"{path} is unreadable or malformed: path is not a regular file.",
+                    ex) { FilePath = path };
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
+            }
         }
 
         string text;
