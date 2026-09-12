@@ -139,14 +139,8 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> ExecuteAsync(ParsedCommandLine parsed, CancellationToken cancellationToken)
     {
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
-        RunSettings settings;
-        try
+        if (!TryResolveSettings(parsed, config, out var settings))
         {
-            settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            _stderr.WriteLine($"wgfetch: invalid path in configuration or options: {TerminalTextSanitizer.Sanitize(ex.Message)}");
             return ExitCode.UsageError;
         }
 
@@ -204,14 +198,8 @@ public sealed partial class CommandRunner
         }
 
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
-        RunSettings settings;
-        try
+        if (!TryResolveSettings(parsed, config, out var settings))
         {
-            settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            _stderr.WriteLine($"wgfetch: invalid path in configuration or options: {TerminalTextSanitizer.Sanitize(ex.Message)}");
             return ExitCode.UsageError;
         }
         var environment = BuildTerminalEnvironment(settings);
@@ -343,6 +331,24 @@ public sealed partial class CommandRunner
     }
 
     private void Emit(JsonEvent @event) => _events?.Write(@event);
+
+    private bool TryResolveSettings(
+        ParsedCommandLine parsed,
+        WgFetchConfig config,
+        [NotNullWhen(true)] out RunSettings? settings)
+    {
+        try
+        {
+            settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _stderr.WriteLine($"wgfetch: invalid configuration or option value: {TerminalTextSanitizer.Sanitize(ex.Message)}");
+            settings = null;
+            return false;
+        }
+    }
 
     /// <summary>
     /// Human-readable output. With <c>--json</c>, stdout belongs exclusively to the event stream, so
