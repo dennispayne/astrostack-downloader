@@ -274,7 +274,7 @@ wgfetch list [--output]
 wgfetch diagnostics          # redacted support bundle
 ```
 
-`--json` on every command, `--verbose`, and **distinct exit codes per failure class**: unresolved, ambiguous, verification-failed, hash-mismatch, missing-prereq, requires-auth, rate-limited, network-error, cancelled.
+`--json` on every command, `--verbose`, and **distinct exit codes per failure class**: unresolved, ambiguous, verification-failed, hash-mismatch, missing-prereq, requires-auth, rate-limited, network-error, configuration-error, cancelled.
 
 ## Target workflow — optimize for this
 

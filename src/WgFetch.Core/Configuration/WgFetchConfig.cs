@@ -193,6 +193,11 @@ public static class ConfigFile
         await SaveUnlockedAsync(config, path, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Atomically applies a read-modify-write update. Returns <see langword="null"/> when
+    /// <paramref name="update"/> rejects the current config, but throws <see cref="InvalidDataException"/>
+    /// when an existing config file is malformed so the caller never overwrites it with defaults.
+    /// </summary>
     public static async Task<WgFetchConfig?> TryUpdateAsync(
         string path,
         Func<WgFetchConfig, WgFetchConfig?> update,

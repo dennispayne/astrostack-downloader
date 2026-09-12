@@ -87,27 +87,23 @@ public sealed partial class CommandRunner
             }
 
             string? updateError = null;
-            WgFetchConfig? persisted;
-            try
-            {
-                persisted = await ConfigFile.TryUpdateAsync(
-                    path,
-                    latest =>
+            var (persisted, invalidConfig) = await TryUpdateConfigAsync(
+                path,
+                latest =>
+                {
+                    updateError = null;
+                    if (!ConfigSettings.TrySet(latest, choice, value, out var merged, out updateError))
                     {
-                        updateError = null;
-                        if (!ConfigSettings.TrySet(latest, choice, value, out var merged, out updateError))
-                        {
-                            return null;
-                        }
+                        return null;
+                    }
 
-                        return merged;
-                    },
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidDataException exception)
+                    return merged;
+                },
+                redactionSecrets,
+                cancellationToken).ConfigureAwait(false);
+            if (invalidConfig is not null)
             {
-                var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
-                console.MarkupLine($"[red]{Markup.Escape(display)}[/]");
+                console.MarkupLine($"[red]{Markup.Escape(invalidConfig)}[/]");
                 continue;
             }
             if (persisted is null)
@@ -234,27 +230,23 @@ public sealed partial class CommandRunner
             }
 
             string? updateError = null;
-            WgFetchConfig? persisted;
-            try
-            {
-                persisted = await ConfigFile.TryUpdateAsync(
-                    configPath,
-                    latest =>
+            var (persisted, invalidConfig) = await TryUpdateConfigAsync(
+                configPath,
+                latest =>
+                {
+                    updateError = null;
+                    if (!ConfigSettings.TrySet(latest, "modelsRoot", root, out var merged, out updateError))
                     {
-                        updateError = null;
-                        if (!ConfigSettings.TrySet(latest, "modelsRoot", root, out var merged, out updateError))
-                        {
-                            return null;
-                        }
+                        return null;
+                    }
 
-                        return merged;
-                    },
-                    cancellationToken).ConfigureAwait(false);
-            }
-            catch (InvalidDataException exception)
+                    return merged;
+                },
+                redactionSecrets,
+                cancellationToken).ConfigureAwait(false);
+            if (invalidConfig is not null)
             {
-                var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
-                console.MarkupLine($"[red]{Markup.Escape(display)}[/]");
+                console.MarkupLine($"[red]{Markup.Escape(invalidConfig)}[/]");
                 return ExitCode.Success;
             }
             if (persisted is null)
