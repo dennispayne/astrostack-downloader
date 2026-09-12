@@ -612,7 +612,7 @@ public sealed partial class CommandRunner
             return [];
         }
 
-        var document = TargetsFile.Parse(await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false));
+        var document = await TargetsFile.LoadAsync(path, cancellationToken).ConfigureAwait(false);
         return document.Targets.Select(t => t.Name).ToArray();
     }
 
