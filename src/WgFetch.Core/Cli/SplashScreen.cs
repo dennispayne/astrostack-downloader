@@ -72,7 +72,8 @@ public static class SplashScreen
     {
         if (targetsError is not null)
         {
-            writer.WriteLine($"{"Targets",-18} ·  {targetsError} {"Prereqs",-10} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
+            writer.WriteLine($"{"Targets",-18} ·  {targetsError}");
+            writer.WriteLine($"{"Prereqs",-18} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
             writer.WriteLine($"{"Source tree",-18} ·  {outputDirectory}");
             return;
         }

@@ -212,7 +212,7 @@ public sealed partial class CommandRunner
 
         var prerequisiteStatuses = await PrereqInstaller.StatusAsync(settings.ModelsRoot, cancellationToken)
             .ConfigureAwait(false);
-        var prerequisitesInstalled = prerequisiteStatuses.Count > 0 && prerequisiteStatuses.All(model => model.Ready);
+        var prerequisitesInstalled = PrerequisitesReady(prerequisiteStatuses);
         if (terminal == TerminalMode.Interactive)
         {
             var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -250,6 +250,13 @@ public sealed partial class CommandRunner
     /// </summary>
     private bool IsOutputRedirected() =>
         _dependencies.TerminalEnvironment?.OutputRedirected ?? Console.IsOutputRedirected;
+
+    /// <summary>
+    /// Every pinned model must be present and report <see cref="PrereqState.Present"/>; an empty
+    /// status list (no pinned models configured) is treated as "not ready" rather than vacuously true.
+    /// </summary>
+    private static bool PrerequisitesReady(IReadOnlyList<PrereqModelStatus> statuses) =>
+        statuses.Count > 0 && statuses.All(model => model.Ready);
 
     private void WriteUsageErrors(ParsedCommandLine parsed)
     {
