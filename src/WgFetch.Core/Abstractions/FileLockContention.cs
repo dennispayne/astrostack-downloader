@@ -10,6 +10,9 @@ internal static class FileLockContention
     // Win32 sharing/lock violations, as surfaced by FileStream on Windows.
     private const int SharingViolation = unchecked((int)0x80070020);
     private const int LockViolation = unchecked((int)0x80070021);
+    private const int EBusy = 16;
+    private const int EAgainLinux = 11;
+    private const int EAgainBsd = 35;
 
     /// <summary>
     /// Returns <see langword="true"/> when the exception means another holder owns the lock file.
@@ -36,9 +39,8 @@ internal static class FileLockContention
         }
 
         // On Unix an exclusive open that loses the advisory lock surfaces the native errno as HResult.
-        // EBUSY is 16 on both Linux/macOS, while EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on macOS.
-        return OperatingSystem.IsMacOS()
-            ? exception.HResult is 16 or 35
-            : exception.HResult is 11 or 16;
+        // EBUSY is 16 on Linux/BSD/macOS, while EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on BSD/macOS.
+        var eAgain = (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) ? EAgainBsd : EAgainLinux;
+        return exception.HResult is EBusy || exception.HResult == eAgain;
     }
 }

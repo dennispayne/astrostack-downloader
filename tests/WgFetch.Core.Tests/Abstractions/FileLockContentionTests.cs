@@ -52,9 +52,10 @@ public sealed class FileLockContentionTests
             return;
         }
 
+        var bsdOrMac = OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD();
         Assert.True(FileLockContention.IsContention(IOExceptionWithHResult("busy", 16)));
-        Assert.True(FileLockContention.IsContention(IOExceptionWithHResult("would block", OperatingSystem.IsMacOS() ? 35 : 11)));
-        Assert.False(FileLockContention.IsContention(IOExceptionWithHResult("platform-specific non-contention", OperatingSystem.IsMacOS() ? 11 : 35)));
+        Assert.True(FileLockContention.IsContention(IOExceptionWithHResult("would block", bsdOrMac ? 35 : 11)));
+        Assert.False(FileLockContention.IsContention(IOExceptionWithHResult("platform-specific non-contention", bsdOrMac ? 11 : 35)));
         Assert.False(FileLockContention.IsContention(IOExceptionWithHResult("no space", 28)));
     }
 
