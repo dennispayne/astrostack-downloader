@@ -41,19 +41,8 @@ public sealed class AotSmokeTests
         return (process.ExitCode, stdout, stderr);
     }
 
-    private static async Task<(int ExitCode, string Output)?> RunAttachedToPseudoTerminalAsync()
+    private static async Task<(int ExitCode, string Output)> RunAttachedToPseudoTerminalAsync(string script)
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            return null;
-        }
-
-        var script = FindExecutable("script");
-        if (script is null)
-        {
-            return null;
-        }
-
         var info = new ProcessStartInfo(script)
         {
             RedirectStandardOutput = true,
@@ -147,17 +136,17 @@ public sealed class AotSmokeTests
             return;
         }
 
-        var result = await RunAttachedToPseudoTerminalAsync();
-        if (result is null)
-        {
-            return;
-        }
+        Assert.True(OperatingSystem.IsLinux(), "The interactive AOT landing smoke test requires a Linux PTY harness.");
+        var script = FindExecutable("script");
+        Assert.True(script is not null, "The interactive AOT landing smoke test requires the 'script' PTY utility.");
+
+        var result = await RunAttachedToPseudoTerminalAsync(script);
 
         Assert.True(
-            result.Value.ExitCode == (int)ExitCode.UsageError,
-            $"exit={result.Value.ExitCode} output={result.Value.Output}");
-        Assert.Contains("resolve  •  verify  •  download", result.Value.Output, StringComparison.Ordinal);
-        Assert.Contains("Usage: wgfetch <command> [options]", result.Value.Output, StringComparison.Ordinal);
+            result.ExitCode == (int)ExitCode.UsageError,
+            $"exit={result.ExitCode} output={result.Output}");
+        Assert.Contains("resolve  •  verify  •  download", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", result.Output, StringComparison.Ordinal);
     }
 
     /// <summary>

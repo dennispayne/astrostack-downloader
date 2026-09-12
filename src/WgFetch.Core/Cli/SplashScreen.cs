@@ -31,7 +31,7 @@ public static class SplashScreen
         bool prerequisitesInstalled,
         DateTimeOffset? now = null)
     {
-        const string backslash = "\u005c";
+        const string backslash = "\\";
         var art = new Markup(
             "[#67e8f9]·[/]       [#6366f1]⋆[/]       [#67e8f9]·[/]          [#6366f1]✦[/]\n" +
             " [#6366f1]✦[/]      [#67e8f9]·[/]              [#67e8f9]/" + backslash + "[/]\n" +
