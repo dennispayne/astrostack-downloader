@@ -31,9 +31,9 @@ public static class SplashScreen
         DateTimeOffset? now = null,
         string? targetsError = null)
     {
-        var status = new StringWriter(CultureInfo.InvariantCulture);
-        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError);
-        return new Rows(CreateInteractiveHeader(), new Text(status.ToString()));
+        return new Rows(
+            CreateInteractiveHeader(),
+            CreateStatus(targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError));
     }
 
     internal static void WritePlainHeader(TextWriter writer)
@@ -68,6 +68,18 @@ public static class SplashScreen
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.FromHex("#6366f1"))
             .Padding(3, 1);
+    }
+
+    internal static IRenderable CreateStatus(
+        TargetsDocument? targets,
+        string outputDirectory,
+        bool prerequisitesInstalled,
+        DateTimeOffset now,
+        string? targetsError)
+    {
+        var status = new StringWriter(CultureInfo.InvariantCulture);
+        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now, targetsError);
+        return new Text(status.ToString());
     }
 
     internal static void WriteStatus(

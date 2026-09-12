@@ -229,18 +229,33 @@ public sealed partial class CommandRunner
 
         _stdout.Flush();
 
+        // The default prereqs install intentionally installs only the required embedding model; Phi is
+        // optional unless --include-llm is requested, so it must not make the landing report "not installed."
         var prerequisiteStatuses = await PrereqInstaller.StatusAsync(
             settings.ModelsRoot,
             [PinnedModels.Embedding],
             cancellationToken).ConfigureAwait(false);
         var prerequisitesInstalled = PrerequisitesReady(prerequisiteStatuses);
-        SplashScreen.WriteStatus(
-            _stdout,
-            targets,
-            settings.OutputDirectory,
-            prerequisitesInstalled,
-            _dependencies.TimeProvider.GetUtcNow(),
-            targetsError);
+        var now = _dependencies.TimeProvider.GetUtcNow();
+        if (console is not null)
+        {
+            console.Write(SplashScreen.CreateStatus(
+                targets,
+                settings.OutputDirectory,
+                prerequisitesInstalled,
+                now,
+                targetsError));
+        }
+        else
+        {
+            SplashScreen.WriteStatus(
+                _stdout,
+                targets,
+                settings.OutputDirectory,
+                prerequisitesInstalled,
+                now,
+                targetsError);
+        }
 
         _stdout.WriteLine();
         _stdout.Write(CommandLineParser.RenderHelp());

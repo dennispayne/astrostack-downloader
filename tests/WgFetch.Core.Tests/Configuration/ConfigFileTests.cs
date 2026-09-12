@@ -35,6 +35,20 @@ public sealed class ConfigFileTests
     }
 
     [Fact]
+    public async Task An_unreadable_file_yields_defaults()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+        await File.WriteAllTextAsync(path, "{}");
+        await using var lockedConfig = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+        var config = await ConfigFile.LoadAsync(path, CancellationToken.None);
+
+        Assert.Null(config.OutputDirectory);
+        Assert.Null(config.AiKey);
+    }
+
+    [Fact]
     public async Task Round_trips_every_field()
     {
         using var temp = new TempDirectory();
