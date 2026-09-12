@@ -301,13 +301,9 @@ public sealed class PinnedModelsTests
         var manifestPath = temp.Combine("install-manifest.json");
         var held = await PrereqInstaller.AcquireManifestLockAsync(manifestPath, CancellationToken.None);
         using var cancellation = new CancellationTokenSource();
-        var waitRegistered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var waiting = PrereqInstaller.AcquireManifestLockAsync(
-            manifestPath,
-            cancellation.Token,
-            () => waitRegistered.SetResult());
-        await waitRegistered.Task;
-        cancellation.Cancel();
+        var waiting = PrereqInstaller.AcquireManifestLockAsync(manifestPath, cancellation.Token);
+        Assert.Equal(2, PrereqInstaller.GetManifestLockReferenceCount(manifestPath));
+        await cancellation.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
         held.Dispose();

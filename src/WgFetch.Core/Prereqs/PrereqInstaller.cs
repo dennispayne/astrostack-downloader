@@ -93,8 +93,7 @@ public sealed class PrereqInstaller
 
     internal static async Task<IDisposable> AcquireManifestLockAsync(
         string manifestPath,
-        CancellationToken cancellationToken,
-        Action? afterWaitRegistered = null)
+        CancellationToken cancellationToken)
     {
         var key = NormalizeManifestKey(manifestPath);
         RefCountedLock entry;
@@ -110,7 +109,6 @@ public sealed class PrereqInstaller
         try
         {
             var wait = entry.Semaphore.WaitAsync(cancellationToken);
-            afterWaitRegistered?.Invoke();
             await wait.ConfigureAwait(false);
             lockAcquired = true;
             return new ManifestLockScope(key, entry);
@@ -124,6 +122,11 @@ public sealed class PrereqInstaller
 
     internal static bool IsManifestLockTracked(string manifestPath) =>
         ManifestLocks.ContainsKey(NormalizeManifestKey(manifestPath));
+
+    internal static int GetManifestLockReferenceCount(string manifestPath) =>
+        ManifestLocks.TryGetValue(NormalizeManifestKey(manifestPath), out var entry)
+            ? Volatile.Read(ref entry.RefCount)
+            : 0;
 
     /// <summary>
     /// Releases an acquired semaphore permit when <paramref name="releaseSemaphore"/> is true, then
