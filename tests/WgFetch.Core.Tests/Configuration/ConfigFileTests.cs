@@ -39,6 +39,8 @@ public sealed class ConfigFileTests
     {
         if (!OperatingSystem.IsWindows())
         {
+            // xUnit 2 has no runtime skip support. FileShare.None is not enforced across processes on
+            // Unix; the malformed-file test above remains the portable config-fallback coverage.
             return;
         }
 

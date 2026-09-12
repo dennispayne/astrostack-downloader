@@ -144,6 +144,8 @@ public sealed class AotSmokeTests
         var script = FindExecutable("script");
         if (script is null)
         {
+            // xUnit 2 has no runtime skip support; without a PTY utility this host cannot exercise
+            // attached-console behavior, matching the no-op convention used when no binary is supplied.
             return;
         }
 

@@ -118,15 +118,19 @@ public static class TargetsFile
 
     private static class LinuxFileType
     {
+        private const int AtFileSystemRoot = -100;
+        private const int NoStatxFlags = 0;
+        private const int NoSuchFileOrDirectory = 2;
+        private const uint FileTypeMaskRequest = 1;
         private const ushort FileTypeMask = 0xF000;
         private const ushort RegularFile = 0x8000;
 
         internal static bool IsRegular(string path)
         {
-            if (Statx(-100, path, 0, 1, out var stat) != 0)
+            if (Statx(AtFileSystemRoot, path, NoStatxFlags, FileTypeMaskRequest, out var stat) != 0)
             {
                 var error = Marshal.GetLastPInvokeError();
-                if (error == 2)
+                if (error == NoSuchFileOrDirectory)
                 {
                     throw new FileNotFoundException();
                 }
