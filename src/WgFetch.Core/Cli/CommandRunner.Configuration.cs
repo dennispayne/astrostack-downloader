@@ -145,7 +145,11 @@ public sealed partial class CommandRunner
     /// file is arbitrary JSON, and an invalid value (for example an embedded NUL) must send the user
     /// back to a repairable menu instead of crashing the whole interactive session.
     /// </summary>
-    private static bool TryResolveModelsRoot(WgFetchConfig config, IAnsiConsole console, out string modelsRoot)
+    private static bool TryResolveModelsRoot(
+        WgFetchConfig config,
+        IAnsiConsole console,
+        IEnumerable<string> redactionSecrets,
+        out string modelsRoot)
     {
         var candidate = string.IsNullOrWhiteSpace(config.ModelsRoot) ? WgFetchPaths.ModelsDirectory : config.ModelsRoot;
         try
@@ -155,7 +159,7 @@ public sealed partial class CommandRunner
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            var display = Logging.SecretRedactor.Redact(candidate, config.Secrets);
+            var display = Logging.SecretRedactor.Redact(candidate, redactionSecrets);
             console.MarkupLine(
                 $"[red]The persisted modelsRoot is invalid:[/] {Markup.Escape(display)}. " +
                 "Edit or unset the 'modelsRoot' setting to continue.");
@@ -171,7 +175,7 @@ public sealed partial class CommandRunner
         IReadOnlyList<string> redactionSecrets,
         CancellationToken cancellationToken)
     {
-        if (!TryResolveModelsRoot(config, console, out var modelsRoot))
+        if (!TryResolveModelsRoot(config, console, redactionSecrets, out var modelsRoot))
         {
             return ExitCode.Success;
         }

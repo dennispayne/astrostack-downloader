@@ -443,6 +443,20 @@ public sealed class PrereqInstaller
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                // The model list is caller-supplied, so the very first URL is validated here too: no
+                // request may leave the process for a plaintext or off-allowlist host, not even the
+                // pinned candidate itself (docs/REQUIREMENTS.md, "Safety invariant").
+                if (!string.Equals(currentUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                    !IsAllowedDownloadHost(currentUrl.Host))
+                {
+                    _logger.LogError(
+                        "Model download for {Asset} targeted a non-HTTPS or non-allowlisted host '{Host}'.",
+                        asset.RelativePath,
+                        currentUrl.Host);
+                    return null;
+                }
+
                 response = await _http
                     .SendAsync(new HttpRequestSpec { Url = currentUrl, Verb = HttpVerb.Get }, cancellationToken)
                     .ConfigureAwait(false);

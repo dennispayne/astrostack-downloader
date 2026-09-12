@@ -120,13 +120,33 @@ public sealed class CommandRunnerInteractiveConfigTests
     }
 
     [Fact]
+    public async Task Interactive_invalid_models_root_error_redacts_environment_only_secrets()
+    {
+        using var temp = new TempDirectory();
+        const string envSecret = "env-only-secret";
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(configPath, $$"""{"modelsRoot":"\u0000{{envSecret}}"}""", CancellationToken.None);
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, ExitIndex);
+        var environment = new Dictionary<string, string?> { ["WGFETCH_AI_KEY"] = envSecret };
+        var (runner, _, _) = CreateInteractiveRunner(console, environment: environment);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("invalid", console.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(envSecret, console.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Interactive_session_installs_a_single_selected_model()
     {
         using var temp = new TempDirectory();
         var configPath = temp.Combine("config.json");
         await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = temp.Combine("models") }, configPath, CancellationToken.None);
         var bytes = "model bytes"u8.ToArray();
-        var model = TestModel("demo-model", "https://models.example/demo.bin", bytes);
+        var model = TestModel("demo-model", "https://huggingface.co/test/demo.bin", bytes);
         var http = new StubHttpGateway().Map(model.Assets[0].Url, StubResponse.Binary(bytes));
 
         var console = CreateInteractiveConsole();
@@ -149,8 +169,8 @@ public sealed class CommandRunnerInteractiveConfigTests
         await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = temp.Combine("models") }, configPath, CancellationToken.None);
         var firstBytes = "first model"u8.ToArray();
         var secondBytes = "second model"u8.ToArray();
-        var first = TestModel("first-model", "https://models.example/first.bin", firstBytes);
-        var second = TestModel("second-model", "https://models.example/second.bin", secondBytes);
+        var first = TestModel("first-model", "https://huggingface.co/test/first.bin", firstBytes);
+        var second = TestModel("second-model", "https://huggingface.co/test/second.bin", secondBytes);
         var http = new StubHttpGateway()
             .Map(first.Assets[0].Url, StubResponse.Binary(firstBytes))
             .Map(second.Assets[0].Url, StubResponse.Binary(secondBytes));
@@ -174,7 +194,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         using var temp = new TempDirectory();
         var configPath = temp.Combine("config.json");
         var newRoot = temp.Combine("new-models");
-        var model = TestModel("demo-model", "https://models.example/demo.bin", "bytes"u8.ToArray());
+        var model = TestModel("demo-model", "https://huggingface.co/test/demo.bin", "bytes"u8.ToArray());
         var console = CreateInteractiveConsole();
         SelectByIndex(console, ModelPrerequisitesIndex);
         SelectByIndex(console, 2); // Change models root follows install-one and install-all.
@@ -225,7 +245,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         using var temp = new TempDirectory();
         var configPath = temp.Combine("config.json");
         await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = temp.Combine("models") }, configPath, CancellationToken.None);
-        var model = TestModel("demo-model", "https://models.example/demo.bin", "bytes"u8.ToArray());
+        var model = TestModel("demo-model", "https://huggingface.co/test/demo.bin", "bytes"u8.ToArray());
         var http = new StubHttpGateway().Map(model.Assets[0].Url, StubResponse.Status(503));
         var console = CreateInteractiveConsole();
         SelectByIndex(console, ModelPrerequisitesIndex);
@@ -244,7 +264,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         using var temp = new TempDirectory();
         var configPath = temp.Combine("config.json");
         await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = temp.Combine("models") }, configPath, CancellationToken.None);
-        var model = TestModel("demo-model", "https://models.example/demo.bin", "bytes"u8.ToArray());
+        var model = TestModel("demo-model", "https://huggingface.co/test/demo.bin", "bytes"u8.ToArray());
         var console = CreateInteractiveConsole();
         SelectByIndex(console, ModelPrerequisitesIndex);
         SelectByIndex(console, 3); // Back.

@@ -13,7 +13,7 @@ public static partial class SecretRedactor
 
     private static readonly HashSet<string> SensitiveQueryKeys = new(StringComparer.OrdinalIgnoreCase)
     {
-        "key", "apikey", "api_key", "token", "access_token", "auth", "authorization", "signature",
+        "key", "apikey", "api_key", "api-key", "token", "access_token", "auth", "authorization", "signature",
         "sig", "password", "secret", "client_secret", "x-api-key", "code",
     };
 
@@ -102,36 +102,21 @@ public static partial class SecretRedactor
         var query = uri.Query;
         if (query.Length > 1)
         {
-            var parts = query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries);
-            for (var i = 0; i < parts.Length; i++)
+            builder.Query = RedactParameters(query.TrimStart('?'), secrets);
+        }
+
+        var rawFragment = uri.Fragment;
+        if (rawFragment.Length > 1)
+        {
+            // OAuth-style responses carry credentials in the fragment (for example
+            // "#access_token=..."), which never reaches the query pass, so the same sensitive-key
+            // handling is applied here (docs/REQUIREMENTS.md, "Privacy").
+            var fragmentBody = rawFragment.TrimStart('#');
+            var redactedFragment = RedactParameters(fragmentBody, secrets);
+            if (!string.Equals(redactedFragment, fragmentBody, StringComparison.Ordinal))
             {
-                var eq = parts[i].IndexOf('=');
-                if (eq < 0)
-                {
-                    // A valueless component carries no name to preserve, so replace it wholesale: the
-                    // secret may be encoded in a form that a textual replacement would not match.
-                    if (ContainsSecret(DecodeQueryComponent(parts[i]), secrets))
-                    {
-                        parts[i] = Placeholder;
-                    }
-
-                    continue;
-                }
-
-                var rawName = parts[i][..eq];
-                var rawValue = parts[i][(eq + 1)..];
-                var name = DecodeQueryComponent(rawName);
-                var value = DecodeQueryComponent(rawValue);
-                var secretInName = ContainsSecret(name, secrets);
-                if (SensitiveQueryKeys.Contains(name) ||
-                    secretInName ||
-                    ContainsSecret(value, secrets))
-                {
-                    parts[i] = (secretInName ? Placeholder : rawName) + "=" + Placeholder;
-                }
+                builder.Fragment = redactedFragment;
             }
-
-            builder.Query = string.Join('&', parts);
         }
 
         if (secrets.Length > 0)
@@ -168,6 +153,44 @@ public static partial class SecretRedactor
         result = OpenAiKeyPattern().Replace(result, Placeholder);
         result = BearerPattern().Replace(result, $"$1 {Placeholder}");
         return result;
+    }
+
+    /// <summary>
+    /// Redacts an <c>&amp;</c>-separated parameter list (a URL query or an OAuth-style fragment),
+    /// replacing values of well-known sensitive keys and any component holding a known secret.
+    /// </summary>
+    private static string RedactParameters(string rawParameters, IReadOnlyCollection<string> secrets)
+    {
+        var parts = rawParameters.Split('&', StringSplitOptions.RemoveEmptyEntries);
+        for (var i = 0; i < parts.Length; i++)
+        {
+            var eq = parts[i].IndexOf('=');
+            if (eq < 0)
+            {
+                // A valueless component carries no name to preserve, so replace it wholesale: the
+                // secret may be encoded in a form that a textual replacement would not match.
+                if (ContainsSecret(DecodeQueryComponent(parts[i]), secrets))
+                {
+                    parts[i] = Placeholder;
+                }
+
+                continue;
+            }
+
+            var rawName = parts[i][..eq];
+            var rawValue = parts[i][(eq + 1)..];
+            var name = DecodeQueryComponent(rawName);
+            var value = DecodeQueryComponent(rawValue);
+            var secretInName = ContainsSecret(name, secrets);
+            if (SensitiveQueryKeys.Contains(name) ||
+                secretInName ||
+                ContainsSecret(value, secrets))
+            {
+                parts[i] = (secretInName ? Placeholder : rawName) + "=" + Placeholder;
+            }
+        }
+
+        return string.Join('&', parts);
     }
 
     /// <summary>Decodes a query-string component using both percent-encoding and form-encoding (<c>+</c> for space).</summary>

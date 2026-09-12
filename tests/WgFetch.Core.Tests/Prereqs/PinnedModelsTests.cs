@@ -190,14 +190,34 @@ public sealed class PinnedModelsTests
         Assert.Empty(result.Messages);
     }
 
+    [Theory]
+    [InlineData("http://huggingface.co/test/model.bin")]
+    [InlineData("https://attacker.example/model.bin")]
+    [InlineData("https://evilhuggingface.co/model.bin")]
+    public async Task Install_never_contacts_an_asset_url_that_is_not_https_and_allowlisted(string url)
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var model = TestModel("untrusted", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Empty(http.Requests);
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
     [Fact]
     public async Task Selective_install_downloads_and_records_only_the_selected_model()
     {
         using var temp = new TempDirectory();
         var selectedBytes = "selected model"u8.ToArray();
         var otherBytes = "other model"u8.ToArray();
-        var selected = TestModel("selected", "https://models.example/selected.bin", selectedBytes);
-        var unselected = TestModel("unselected", "https://models.example/unselected.bin", otherBytes);
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", selectedBytes);
+        var unselected = TestModel("unselected", "https://huggingface.co/test/unselected.bin", otherBytes);
         var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(selectedBytes));
         var installer = new PrereqInstaller(http, models: [selected, unselected]);
 
@@ -361,8 +381,8 @@ public sealed class PinnedModelsTests
         using var temp = new TempDirectory();
         var selectedBytes = "selected model"u8.ToArray();
         var otherBytes = "other model"u8.ToArray();
-        var selected = TestModel("selected", "https://models.example/selected.bin", selectedBytes);
-        var unselected = TestModel("unselected", "https://models.example/unselected.bin", otherBytes);
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", selectedBytes);
+        var unselected = TestModel("unselected", "https://huggingface.co/test/unselected.bin", otherBytes);
         var http = new StubHttpGateway()
             .Map(selected.Assets[0].Url, StubResponse.Binary(selectedBytes))
             .Map(unselected.Assets[0].Url, StubResponse.Binary(otherBytes));
@@ -393,7 +413,7 @@ public sealed class PinnedModelsTests
             CancellationToken.None);
 
         var bytes = "selected model"u8.ToArray();
-        var selected = TestModel("selected", "https://models.example/selected.bin", bytes);
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", bytes);
         var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(bytes));
         var installer = new PrereqInstaller(http, models: [selected]);
 
@@ -416,7 +436,7 @@ public sealed class PinnedModelsTests
             CancellationToken.None);
 
         var bytes = "selected model"u8.ToArray();
-        var selected = TestModel("selected", "https://models.example/selected.bin", bytes);
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", bytes);
         var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(bytes));
         var installer = new PrereqInstaller(http, models: [selected]);
 
@@ -444,7 +464,7 @@ public sealed class PinnedModelsTests
         for (var i = 0; i < modelCount; i++)
         {
             var bytes = System.Text.Encoding.UTF8.GetBytes($"model-{i}");
-            var model = TestModel($"model-{i}", $"https://models.example/model-{i}.bin", bytes);
+            var model = TestModel($"model-{i}", $"https://huggingface.co/test/model-{i}.bin", bytes);
             models.Add(model);
             http.Map(model.Assets[0].Url, StubResponse.Binary(bytes));
         }

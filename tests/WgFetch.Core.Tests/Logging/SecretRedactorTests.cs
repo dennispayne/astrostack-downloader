@@ -126,6 +126,40 @@ public sealed class SecretRedactorTests
         Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("api-key")]
+    [InlineData("API-Key")]
+    [InlineData("api_key")]
+    [InlineData("x-api-key")]
+    public void RedactUrl_redacts_an_api_key_query_parameter_without_a_registered_secret(string parameterName)
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://host.example/?{parameterName}=arbitrary-secret");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("access_token")]
+    [InlineData("token")]
+    [InlineData("api-key")]
+    public void RedactUrl_redacts_a_sensitive_fragment_parameter_without_a_registered_secret(string parameterName)
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://host.example/callback#{parameterName}=arbitrary-secret&state=xyz");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+        Assert.Contains("state=xyz", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_leaves_a_non_sensitive_fragment_untouched()
+    {
+        const string url = "https://host.example/docs#installation";
+
+        Assert.Equal(url, SecretRedactor.RedactUrl(url));
+    }
+
     [Fact]
     public void RedactUrl_redacts_a_github_token_shaped_fragment()
     {
