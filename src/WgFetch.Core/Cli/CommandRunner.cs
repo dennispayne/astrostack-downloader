@@ -39,6 +39,13 @@ public sealed record RunnerDependencies
 
     /// <summary>Overrides pinned models so interactive prerequisite management remains hermetic.</summary>
     public IReadOnlyList<PinnedModel>? PrereqModels { get; init; }
+
+    /// <summary>
+    /// Overrides whether a real, attached interactive terminal is present. Hermetic tests run with no
+    /// TTY at all, so this lets them exercise the interactive config flow (with an injected
+    /// <see cref="InteractiveConsole"/>) without a real console being attached.
+    /// </summary>
+    public bool? InteractiveTerminalOverride { get; init; }
 }
 
 /// <summary>
@@ -141,11 +148,13 @@ public sealed partial class CommandRunner
                 _humanToStderr = true;
             }
 
-            var configTerminal = TerminalCapability.Detect(BuildTerminalEnvironment(
+            var configEnvironment = BuildTerminalEnvironment(
                 parsed.Has("--plain"),
                 parsed.Has("--no-color"),
-                parsed.Has("--json")));
-            return await ConfigAsync(parsed, config, configTerminal, cancellationToken).ConfigureAwait(false);
+                parsed.Has("--json"));
+            var isInteractiveTerminal = _dependencies.InteractiveTerminalOverride
+                ?? TerminalCapability.IsInteractiveTerminal(configEnvironment);
+            return await ConfigAsync(parsed, config, isInteractiveTerminal, cancellationToken).ConfigureAwait(false);
         }
 
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
@@ -204,6 +213,7 @@ public sealed partial class CommandRunner
         {
             OutputRedirected = Console.IsOutputRedirected,
             ErrorRedirected = Console.IsErrorRedirected,
+            InputRedirected = Console.IsInputRedirected,
             Term = Lookup("TERM"),
             NoColorSet = !string.IsNullOrEmpty(Lookup("NO_COLOR")),
             CiSet = !string.IsNullOrEmpty(Lookup("CI")),

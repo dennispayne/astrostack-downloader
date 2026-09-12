@@ -65,7 +65,9 @@ public static class ConfigSettings
 
         if (normalized == "loglevel" && !LogLevelParser.IsValid(value))
         {
-            updated = config; error = "logLevel must be one of: trace, debug, info, warn, error, none."; return false;
+            updated = config;
+            error = "logLevel must be one of: trace, debug, info, information, warn, warning, error, none, off.";
+            return false;
         }
 
         return normalized switch

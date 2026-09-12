@@ -244,6 +244,56 @@ public sealed class PinnedModelsTests
         Assert.True(File.Exists(Path.Combine(temp.Path, unselected.Id, unselected.Assets[0].RelativePath)));
     }
 
+    [Fact]
+    public async Task Selective_install_tolerates_a_null_entry_in_an_arbitrary_manifest()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(
+            Path.Combine(temp.Path, "install-manifest.json"),
+            """{"installedUtc":"2024-01-01T00:00:00Z","models":[null]}""",
+            CancellationToken.None);
+
+        var bytes = "selected model"u8.ToArray();
+        var selected = TestModel("selected", "https://models.example/selected.bin", bytes);
+        var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [selected]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([selected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.Contains("\"id\": \"selected\"", manifest, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Concurrent_selective_installs_into_the_same_root_never_drop_each_others_manifest_entry()
+    {
+        using var temp = new TempDirectory();
+        const int modelCount = 8;
+        var models = new List<PinnedModel>();
+        var http = new StubHttpGateway();
+        for (var i = 0; i < modelCount; i++)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes($"model-{i}");
+            var model = TestModel($"model-{i}", $"https://models.example/model-{i}.bin", bytes);
+            models.Add(model);
+            http.Map(model.Assets[0].Url, StubResponse.Binary(bytes));
+        }
+
+        var installer = new PrereqInstaller(http, models: models);
+
+        await Parallel.ForEachAsync(models, async (model, cancellationToken) =>
+        {
+            var result = await installer.InstallAsync(
+                temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, cancellationToken);
+            Assert.True(result.Success);
+        });
+
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.All(models, model => Assert.Contains($"\"id\": \"{model.Id}\"", manifest, StringComparison.Ordinal));
+    }
+
     private static PinnedModel TestModel(string id, string url, byte[] bytes) =>
         new(id, id, "test/repository", "revision", IsLanguageModel: false,
         [new ModelAsset("model.bin", url, bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);

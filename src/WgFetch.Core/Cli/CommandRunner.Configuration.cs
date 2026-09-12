@@ -13,13 +13,18 @@ public sealed partial class CommandRunner
     private const string ChangeModelsRootChoice = "Change models root";
     private const string BackChoice = "Back";
 
+    private static readonly HashSet<string> SecretSettingNames = new(StringComparer.Ordinal)
+    {
+        "aiKey", "searchKey", "githubToken",
+    };
+
     private async Task<ExitCode> InteractiveConfigAsync(
         WgFetchConfig config,
         string? configuredPath,
-        TerminalMode terminal,
+        bool isInteractiveTerminal,
         CancellationToken cancellationToken)
     {
-        if (terminal != TerminalMode.Interactive)
+        if (!isInteractiveTerminal)
         {
             _stderr.WriteLine("wgfetch config: interactive mode requires an attached terminal.");
             return ExitCode.Ambiguous;
@@ -54,6 +59,11 @@ public sealed partial class CommandRunner
             }
 
             var prompt = new TextPrompt<string>($"New value for {choice} (leave blank to cancel)").AllowEmpty();
+            if (SecretSettingNames.Contains(choice))
+            {
+                prompt.Secret();
+            }
+
             var value = console.Prompt(prompt);
             if (string.IsNullOrEmpty(value))
             {
@@ -98,15 +108,41 @@ public sealed partial class CommandRunner
         console.Write(table);
     }
 
+    /// <summary>
+    /// Resolves the persisted <c>modelsRoot</c> to an absolute path without ever throwing: a config
+    /// file is arbitrary JSON, and an invalid value (for example an embedded NUL) must send the user
+    /// back to a repairable menu instead of crashing the whole interactive session.
+    /// </summary>
+    private static bool TryResolveModelsRoot(WgFetchConfig config, IAnsiConsole console, out string modelsRoot)
+    {
+        var candidate = string.IsNullOrWhiteSpace(config.ModelsRoot) ? WgFetchPaths.ModelsDirectory : config.ModelsRoot;
+        try
+        {
+            modelsRoot = Path.GetFullPath(candidate);
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            console.MarkupLine(
+                $"[red]The persisted modelsRoot is invalid:[/] {Markup.Escape(candidate)}. " +
+                "Edit or unset the 'modelsRoot' setting to continue.");
+            modelsRoot = string.Empty;
+            return false;
+        }
+    }
+
     private async Task<ExitCode> ManagePrerequisitesAsync(
         IAnsiConsole console,
         WgFetchConfig config,
         string configPath,
         CancellationToken cancellationToken)
     {
+        if (!TryResolveModelsRoot(config, console, out var modelsRoot))
+        {
+            return ExitCode.Success;
+        }
+
         var models = _dependencies.PrereqModels ?? PinnedModels.All;
-        var modelsRoot = Path.GetFullPath(
-            string.IsNullOrWhiteSpace(config.ModelsRoot) ? WgFetchPaths.ModelsDirectory : config.ModelsRoot);
         var statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
         var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRoot)})");
         table.AddColumn("Model");

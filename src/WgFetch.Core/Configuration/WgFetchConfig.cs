@@ -89,9 +89,17 @@ public sealed record WgFetchConfig
         }
     }
 
-    /// <summary>Returns a copy with every secret replaced, for diagnostics bundles.</summary>
+    /// <summary>
+    /// Returns a copy with every secret replaced, for diagnostics bundles, <c>config get</c> and
+    /// <c>config list</c>. Beyond the three dedicated credential fields, free-text values such as
+    /// <c>aiEndpoint</c>/<c>searchEndpoint</c> can themselves embed a token or basic-auth userinfo
+    /// (for example <c>******host/...</c> or <c>?api_key=...</c>), so they are run through
+    /// the same <see cref="Logging.SecretRedactor"/> used for logs (docs/REQUIREMENTS.md, "Privacy").
+    /// </summary>
     public WgFetchConfig Redacted() => this with
     {
+        AiEndpoint = AiEndpoint is null ? null : Logging.SecretRedactor.Redact(AiEndpoint),
+        SearchEndpoint = SearchEndpoint is null ? null : Logging.SecretRedactor.Redact(SearchEndpoint),
         AiKey = string.IsNullOrEmpty(AiKey) ? AiKey : Logging.SecretRedactor.Placeholder,
         SearchKey = string.IsNullOrEmpty(SearchKey) ? SearchKey : Logging.SecretRedactor.Placeholder,
         GithubToken = string.IsNullOrEmpty(GithubToken) ? GithubToken : Logging.SecretRedactor.Placeholder,

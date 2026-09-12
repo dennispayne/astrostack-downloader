@@ -24,7 +24,7 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> ConfigAsync(
         ParsedCommandLine parsed,
         WgFetchConfig config,
-        TerminalMode terminal,
+        bool isInteractiveTerminal,
         CancellationToken cancellationToken)
     {
         if (parsed.SubCommand is not null && parsed.Has("--interactive"))
@@ -35,7 +35,7 @@ public sealed partial class CommandRunner
 
         if (parsed.SubCommand is null)
         {
-            return await InteractiveConfigAsync(config, parsed.Value("--config"), terminal, cancellationToken).ConfigureAwait(false);
+            return await InteractiveConfigAsync(config, parsed.Value("--config"), isInteractiveTerminal, cancellationToken).ConfigureAwait(false);
         }
 
         var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;

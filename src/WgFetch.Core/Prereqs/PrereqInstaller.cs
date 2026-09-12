@@ -68,11 +68,59 @@ public sealed class PrereqInstaller
     private readonly ILogger _logger;
     private readonly IReadOnlyList<PinnedModel> _models;
 
+    /// <summary>
+    /// One lock per manifest path, serializing its read/merge/write so two concurrent selective
+    /// installs into the same <c>modelsRoot</c> cannot both read the same snapshot and have the
+    /// last writer silently drop the other run's newly installed model. Entries are reference
+    /// counted and removed once no install is in flight for that path, so a long-running host
+    /// juggling many models roots does not leak a semaphore per path forever.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, RefCountedLock> ManifestLocks = new(StringComparer.Ordinal);
+
+    private sealed class RefCountedLock
+    {
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+
+        public int RefCount;
+    }
+
     public PrereqInstaller(IHttpGateway http, ILogger? logger = null, IReadOnlyList<PinnedModel>? models = null)
     {
         _http = http;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
         _models = models ?? PinnedModels.All;
+    }
+
+    private static async Task<IDisposable> AcquireManifestLockAsync(string manifestPath, CancellationToken cancellationToken)
+    {
+        var key = NormalizeManifestKey(manifestPath);
+        RefCountedLock entry;
+        lock (ManifestLocks)
+        {
+            entry = ManifestLocks.AddOrUpdate(
+                key,
+                static _ => new RefCountedLock { RefCount = 1 },
+                static (_, existing) => { existing.RefCount++; return existing; });
+        }
+
+        await entry.Semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new ManifestLockScope(key, entry);
+    }
+
+    private sealed class ManifestLockScope(string key, RefCountedLock entry) : IDisposable
+    {
+        public void Dispose()
+        {
+            entry.Semaphore.Release();
+            lock (ManifestLocks)
+            {
+                entry.RefCount--;
+                if (entry.RefCount == 0)
+                {
+                    ManifestLocks.TryRemove(key, out _);
+                }
+            }
+        }
     }
 
     public static string ModelDirectory(string modelsRoot, PinnedModel model) =>
@@ -222,50 +270,65 @@ public sealed class PrereqInstaller
 
         if (!dryRun && installed.Count > 0)
         {
-            var existing = await LoadExistingManifestModelsAsync(modelsRoot, cancellationToken).ConfigureAwait(false);
-            var merged = existing
-                .Where(model => installed.All(newModel => !string.Equals(newModel.Id, model.Id, StringComparison.Ordinal)))
-                .Concat(installed)
-                .ToArray();
-
-            var manifest = new PrereqInstallManifest
+            var manifestPath = Path.Combine(modelsRoot, "install-manifest.json");
+            using var manifestLock = await AcquireManifestLockAsync(manifestPath, cancellationToken).ConfigureAwait(false);
             {
-                InstalledUtc = DateTimeOffset.UtcNow,
-                Models = merged,
-            };
+                var existing = await LoadExistingManifestModelsAsync(manifestPath, cancellationToken).ConfigureAwait(false);
+                var merged = existing
+                    .Where(model => installed.All(newModel => !string.Equals(newModel.Id, model.Id, StringComparison.Ordinal)))
+                    .Concat(installed)
+                    .ToArray();
 
-            Directory.CreateDirectory(modelsRoot);
-            await File.WriteAllTextAsync(
-                Path.Combine(modelsRoot, "install-manifest.json"),
-                JsonSerializer.Serialize(manifest, PrereqJsonContext.Default.PrereqInstallManifest),
-                cancellationToken).ConfigureAwait(false);
+                var manifest = new PrereqInstallManifest
+                {
+                    InstalledUtc = DateTimeOffset.UtcNow,
+                    Models = merged,
+                };
+
+                Directory.CreateDirectory(modelsRoot);
+                var temp = manifestPath + ".tmp";
+                await File.WriteAllTextAsync(
+                    temp,
+                    JsonSerializer.Serialize(manifest, PrereqJsonContext.Default.PrereqInstallManifest),
+                    cancellationToken).ConfigureAwait(false);
+                File.Move(temp, manifestPath, overwrite: true);
+            }
         }
 
         var status = await StatusAsync(modelsRoot, _models, cancellationToken).ConfigureAwait(false);
         return new PrereqInstallResult(success, messages, status);
     }
 
+    private static string NormalizeManifestKey(string manifestPath)
+    {
+        var full = Path.GetFullPath(manifestPath);
+        // The lock only needs to serialize access to the same on-disk file: fold case solely where the
+        // filesystem itself is case-insensitive (Windows/macOS), never on case-sensitive Linux paths.
+        return OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? full.ToLowerInvariant() : full;
+    }
+
     /// <summary>
     /// Loads previously installed model entries from the manifest, so a selective install never drops
-    /// the record of models installed in an earlier run. A missing or malformed manifest yields none.
+    /// the record of models installed in an earlier run. A missing or malformed manifest yields none,
+    /// and any null entry (a manifest can be arbitrary JSON, e.g. <c>{"models":[null]}</c>) is dropped
+    /// rather than propagated, so a later merge never dereferences a null model.
     /// </summary>
     private static async Task<IReadOnlyList<PrereqInstalledModel>> LoadExistingManifestModelsAsync(
-        string modelsRoot,
+        string manifestPath,
         CancellationToken cancellationToken)
     {
-        var path = Path.Combine(modelsRoot, "install-manifest.json");
-        if (!File.Exists(path))
+        if (!File.Exists(manifestPath))
         {
             return [];
         }
 
         try
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = File.OpenRead(manifestPath);
             var manifest = await JsonSerializer
                 .DeserializeAsync(stream, PrereqJsonContext.Default.PrereqInstallManifest, cancellationToken)
                 .ConfigureAwait(false);
-            return manifest?.Models ?? [];
+            return manifest?.Models?.Where(model => model is not null).ToArray() ?? [];
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {

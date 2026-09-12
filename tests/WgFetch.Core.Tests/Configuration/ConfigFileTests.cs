@@ -119,6 +119,21 @@ public sealed class ConfigRedactionTests
         Assert.Equal("https://ai.example/v1", redacted.AiEndpoint);
     }
 
+    [Fact]
+    public void Redacted_scrubs_a_secret_embedded_in_an_endpoint_url()
+    {
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = "https://ai.example/v1?api_key=super-secret-ai-key",
+            SearchEndpoint = "https://search.example/v1?api_key=super-secret-search-key",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("super-secret-ai-key", redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain("super-secret-search-key", redacted.SearchEndpoint, StringComparison.Ordinal);
+    }
+
     public sealed class ConfigSettingsTests
     {
         [Fact]
@@ -182,6 +197,9 @@ public sealed class ConfigRedactionTests
         {
             Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "logLevel", "verbose", out _, out var error));
             Assert.Contains("logLevel must be one of", error, StringComparison.Ordinal);
+            Assert.Contains("information", error, StringComparison.Ordinal);
+            Assert.Contains("warning", error, StringComparison.Ordinal);
+            Assert.Contains("off", error, StringComparison.Ordinal);
         }
 
         [Theory]
