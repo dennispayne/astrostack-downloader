@@ -354,6 +354,19 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public async Task LoadAsync_ParentPathIsRegularFile_FailsClosedInsteadOfMissing()
+    {
+        using var temp = new TempDirectory();
+        var parent = temp.Combine("source");
+        await File.WriteAllTextAsync(parent, "not a directory", CancellationToken.None);
+        var path = Path.Combine(parent, "targets.yaml");
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+        Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LoadAsync_NonRegularPath_FailsClosedWithoutBlocking()
     {
         using var temp = new TempDirectory();

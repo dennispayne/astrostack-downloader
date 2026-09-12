@@ -47,6 +47,26 @@ public sealed class SplashScreenTests
         Assert.DoesNotContain("Get started", output.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Plain_StaleTargets_CountAsAcquired()
+    {
+        var output = new StringWriter();
+        var targets = new TargetsDocument
+        {
+            Targets =
+            [
+                new TargetEntry { Name = "nina", State = TargetState.Acquired },
+                new TargetEntry { Name = "phd2", State = TargetState.Stale },
+                new TargetEntry { Name = "astap", State = TargetState.Listed },
+            ],
+        };
+
+        SplashScreen.WritePlain(output, targets, "/source", prerequisitesPresent: false);
+
+        Assert.Contains("Targets acquired", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("·  2", output.ToString(), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(30, "just now")]
     [InlineData(90, "1 hour ago")]

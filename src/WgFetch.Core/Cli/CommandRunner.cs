@@ -119,7 +119,7 @@ public sealed partial class CommandRunner
         catch (TargetsFileException ex)
         {
             _stderr.WriteLine($"wgfetch: {TerminalSafe(ex.Message)}");
-            _stderr.WriteLine("Fix the file by hand, or move it aside and re-add your targets.");
+            _stderr.WriteLine("Fix the referenced file by hand, or move it aside and retry.");
             return ExitCode.UsageError;
         }
         finally
@@ -199,13 +199,31 @@ public sealed partial class CommandRunner
             return ExitCode.UsageError;
         }
 
+        var terminal = TerminalCapability.Detect(BuildLandingHeaderEnvironment(parsed));
+        IAnsiConsole? console = null;
+        if (terminal == TerminalMode.Interactive)
+        {
+            console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Ansi = AnsiSupport.Yes,
+                ColorSystem = ColorSystemSupport.TrueColor,
+                Out = new AnsiConsoleOutput(_stdout),
+            });
+            console.Write(SplashScreen.CreateInteractiveHeader());
+            console.WriteLine(string.Empty);
+        }
+        else
+        {
+            SplashScreen.WritePlainHeader(_stdout);
+        }
+
+        _stdout.Flush();
+
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
         if (!TryResolveSettings(parsed, config, out var settings))
         {
             return ExitCode.UsageError;
         }
-        var environment = BuildTerminalEnvironment(settings);
-        var terminal = TerminalCapability.Detect(environment);
         var displayOutputDirectory = SecretRedactor.Redact(settings.OutputDirectory, _activeSecrets);
 
         TargetsDocument? targets = null;
@@ -230,25 +248,6 @@ public sealed partial class CommandRunner
             targetsError = "unable to read targets.yaml";
             _stderr.WriteLine($"wgfetch: {targetsError}.");
         }
-
-        IAnsiConsole? console = null;
-        if (terminal == TerminalMode.Interactive)
-        {
-            console = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.Yes,
-                ColorSystem = ColorSystemSupport.TrueColor,
-                Out = new AnsiConsoleOutput(_stdout),
-            });
-            console.Write(SplashScreen.CreateInteractiveHeader());
-            console.WriteLine(string.Empty);
-        }
-        else
-        {
-            SplashScreen.WritePlainHeader(_stdout);
-        }
-
-        _stdout.Flush();
 
         // The landing view is cosmetic and must stay fast, so readiness uses the hashing-free presence
         // probe; full digest verification belongs to 'prereqs status' and 'verify'. It is also only
@@ -289,6 +288,42 @@ public sealed partial class CommandRunner
     /// </summary>
     private bool IsOutputRedirected() =>
         _dependencies.TerminalEnvironment?.OutputRedirected ?? Console.IsOutputRedirected;
+
+    private TerminalEnvironment BuildLandingHeaderEnvironment(ParsedCommandLine parsed)
+    {
+        var plainRequested = parsed.Has("--plain");
+        var noColorRequested = parsed.Has("--no-color");
+        var jsonRequested = parsed.Has("--json");
+        if (_dependencies.TerminalEnvironment is { } environment)
+        {
+            return environment with
+            {
+                PlainRequested = plainRequested,
+                NoColorRequested = noColorRequested,
+                JsonRequested = jsonRequested,
+            };
+        }
+
+        if (_dependencies.Environment is null)
+        {
+            return TerminalEnvironment.FromProcess(plainRequested, noColorRequested, jsonRequested);
+        }
+
+        string? Lookup(string name) =>
+            _dependencies.Environment.TryGetValue(name, out var value) ? value : null;
+
+        return new TerminalEnvironment
+        {
+            OutputRedirected = Console.IsOutputRedirected,
+            ErrorRedirected = Console.IsErrorRedirected,
+            Term = Lookup("TERM"),
+            NoColorSet = !string.IsNullOrEmpty(Lookup("NO_COLOR")),
+            CiSet = !string.IsNullOrEmpty(Lookup("CI")),
+            PlainRequested = plainRequested,
+            NoColorRequested = noColorRequested,
+            JsonRequested = jsonRequested,
+        };
+    }
 
     private void WriteUsageErrors(ParsedCommandLine parsed)
     {

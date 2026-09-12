@@ -112,7 +112,8 @@ internal static class RegularFileText
             var error = Marshal.GetLastPInvokeError();
             throw error switch
             {
-                NoSuchFileOrDirectory or NotADirectory => new FileNotFoundException(null, path),
+                NoSuchFileOrDirectory => new FileNotFoundException(null, path),
+                NotADirectory => new IOException("path contains a non-directory component."),
                 PermissionDenied => new UnauthorizedAccessException($"Access to '{path}' is denied."),
                 IsADirectory => new IOException("path is not a regular file."),
                 _ => new IOException($"unable to open the file (errno {error})."),
@@ -259,7 +260,7 @@ internal static class RegularFileText
                 throw error switch
                 {
                     Win32ErrorFileNotFound => new FileNotFoundException($"Could not find file '{path}'.", path),
-                    Win32ErrorPathNotFound => new DirectoryNotFoundException($"Could not find a part of the path '{path}'."),
+                    Win32ErrorPathNotFound => CreatePathNotFoundException(path),
                     _ => new IOException($"unable to open the file (Win32 error {error})."),
                 };
             }
@@ -299,6 +300,58 @@ internal static class RegularFileText
             int fileInformationClass,
             out FileAttributeTagInformation fileInformation,
             uint bufferSize);
+
+        private static Exception CreatePathNotFoundException(string path) =>
+            HasNonDirectoryParentComponent(path)
+                ? new IOException("path contains a non-directory component.")
+                : new DirectoryNotFoundException($"Could not find a part of the path '{path}'.");
+
+        private static bool HasNonDirectoryParentComponent(string path)
+        {
+            string? parent;
+            string root;
+            try
+            {
+                var fullPath = Path.GetFullPath(path);
+                parent = Path.GetDirectoryName(fullPath);
+                root = Path.GetPathRoot(fullPath) ?? string.Empty;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(parent) || parent == root)
+            {
+                return false;
+            }
+
+            var relativeParent = parent[root.Length..];
+            var current = root;
+            foreach (var segment in relativeParent.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            {
+                if (segment.Length == 0)
+                {
+                    continue;
+                }
+
+                current = string.IsNullOrEmpty(current)
+                    ? segment
+                    : Path.Combine(current, segment);
+
+                if (File.Exists(current))
+                {
+                    return true;
+                }
+
+                if (!Directory.Exists(current))
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
 
         [StructLayout(LayoutKind.Sequential)]
         private struct FileAttributeTagInformation

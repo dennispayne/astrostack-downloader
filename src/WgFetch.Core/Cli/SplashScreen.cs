@@ -109,7 +109,7 @@ public static class SplashScreen
             return;
         }
 
-        var acquired = targets.Targets.Count(target => target.State == TargetState.Acquired);
+        var acquired = targets.Targets.Count(target => target.State is TargetState.Acquired or TargetState.Stale);
         DateTimeOffset? lastAttempt = targets.Targets.Count == 0
             ? null
             : targets.Targets.Select(target => target.LastAttempt).Max();

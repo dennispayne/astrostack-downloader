@@ -139,6 +139,35 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task NoCommand_WithStaleTargets_CountsThemAsAcquired()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets =
+                [
+                    new TargetEntry { Name = "nina", State = TargetState.Acquired },
+                    new TargetEntry { Name = "phd2", State = TargetState.Stale },
+                ],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("Targets acquired", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("·  2", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoCommand_RedactsSecretInSourcePath()
     {
         using var temp = new TempDirectory();
@@ -238,6 +267,26 @@ public sealed class CommandRunnerTests
         Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("╭", stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("\u001b", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_InvalidSettings_StillEmitsHeaderBeforeError()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(configPath, """{"outputDirectory":"bad\u0000path"}""", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.StartsWith("wgfetch", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("invalid configuration", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -348,6 +397,28 @@ public sealed class CommandRunnerTests
         Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task NoCommand_OutputPathIsFile_FailsClosedInsteadOfFirstRun()
+    {
+        using var temp = new TempDirectory();
+        var output = temp.Combine("source");
+        await File.WriteAllTextAsync(output, "not a directory", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = output },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("status", null, "targets: [\n")]
     [InlineData("remove", "nina", "targets: [\n")]
@@ -369,6 +440,8 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("unreadable or malformed", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("referenced file", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("re-add your targets", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
