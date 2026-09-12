@@ -245,13 +245,7 @@ public sealed class CommandRunnerTests
             SourceLayout.TargetsPath(temp.Path),
             CancellationToken.None);
         var modelsRoot = temp.Combine("models");
-        foreach (var asset in PinnedModels.Embedding.Assets)
-        {
-            var path = Path.Combine(PrereqInstaller.ModelDirectory(modelsRoot, PinnedModels.Embedding), asset.RelativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await using var file = File.Create(path);
-            file.SetLength(asset.SizeBytes!.Value);
-        }
+        WriteSparseEmbeddingAssets(modelsRoot);
 
         var stdout = new StringWriter();
         var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
@@ -269,6 +263,38 @@ public sealed class CommandRunnerTests
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("present (unverified)", stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("installed", stdout.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task NoCommand_TruncatedEmbeddingAsset_IsNotReportedPresent()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var modelsRoot = temp.Combine("models");
+        WriteSparseEmbeddingAssets(modelsRoot, truncateFirstAsset: true);
+
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("not installed", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("present (unverified)", stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -343,6 +369,18 @@ public sealed class CommandRunnerTests
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Empty(stdout.ToString());
         Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    private static void WriteSparseEmbeddingAssets(string modelsRoot, bool truncateFirstAsset = false)
+    {
+        for (var i = 0; i < PinnedModels.Embedding.Assets.Count; i++)
+        {
+            var asset = PinnedModels.Embedding.Assets[i];
+            var path = Path.Combine(PrereqInstaller.ModelDirectory(modelsRoot, PinnedModels.Embedding), asset.RelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var file = File.Create(path);
+            file.SetLength(asset.SizeBytes!.Value - (truncateFirstAsset && i == 0 ? 1 : 0));
+        }
     }
 
     [Fact]
