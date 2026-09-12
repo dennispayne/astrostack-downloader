@@ -252,4 +252,16 @@ public sealed class CommandRunnerInteractiveConfigTests
         Assert.Equal($"plain output{Environment.NewLine}", output.ToString());
         Assert.DoesNotContain('\u001b', output.ToString());
     }
+
+    [Theory]
+    [InlineData(false, null, false)]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void A_persisted_plain_setting_is_honored_even_without_the_command_line_flag(
+        bool plainFlag, bool? configPlain, bool expected)
+    {
+        Assert.Equal(expected, CommandRunner.ResolveConfigPlain(plainFlag, configPlain));
+    }
 }

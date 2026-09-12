@@ -155,7 +155,7 @@ public sealed partial class CommandRunner
             }
 
             var configEnvironment = BuildTerminalEnvironment(
-                parsed.Has("--plain"),
+                ResolveConfigPlain(parsed.Has("--plain"), config.Plain),
                 parsed.Has("--no-color"),
                 parsed.Has("--json"));
             var isInteractiveTerminal = _dependencies.InteractiveTerminalOverride
@@ -205,6 +205,14 @@ public sealed partial class CommandRunner
 
         return exitCode;
     }
+
+    /// <summary>
+    /// A persisted <c>plain</c> setting must be honored the same way <see cref="RunSettings.Resolve"/>
+    /// honors it for every other command, so <c>wgfetch config</c> does not emit ANSI escape sequences
+    /// after <c>config set plain true</c> just because <c>--plain</c> was not also passed.
+    /// </summary>
+    internal static bool ResolveConfigPlain(bool plainFlag, bool? configPlain) =>
+        plainFlag || configPlain == true;
 
     private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings) =>
         BuildTerminalEnvironment(settings.Plain, settings.NoColor, settings.Json);
