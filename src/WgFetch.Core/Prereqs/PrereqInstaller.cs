@@ -197,9 +197,17 @@ public sealed class PrereqInstaller
         var normalizedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         var normalizedTarget = Path.GetFullPath(target);
         var relativeToRoot = Path.GetRelativePath(normalizedRoot, normalizedTarget);
-        if (relativeToRoot == "." || Path.IsPathRooted(relativeToRoot))
+        if (relativeToRoot == ".")
         {
             return;
+        }
+
+        if (relativeToRoot == ".." ||
+            relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal) ||
+            relativeToRoot.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal) ||
+            Path.IsPathRooted(relativeToRoot))
+        {
+            throw new InvalidOperationException($"Refusing to use {description}: it escapes the models root.");
         }
 
         var current = normalizedRoot;
@@ -340,7 +348,9 @@ public sealed class PrereqInstaller
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var path = ResolveConfinedPath(directory, asset.RelativePath, $"asset relative path '{asset.RelativePath}'");
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                var assetDirectory = Path.GetDirectoryName(path)!;
+                RejectReparsePointComponents(modelsRoot, assetDirectory, $"asset parent directory for '{asset.RelativePath}' in '{model.Id}'");
+                Directory.CreateDirectory(assetDirectory);
                 RejectReparsePointComponents(modelsRoot, path, $"asset path '{asset.RelativePath}' for '{model.Id}'");
                 if (File.Exists(path))
                 {

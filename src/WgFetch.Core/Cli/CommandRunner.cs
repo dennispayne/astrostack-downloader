@@ -264,11 +264,11 @@ public sealed partial class CommandRunner
                 parsed.Value("--github-token"),
                 Lookup(RunSettings.GithubTokenEnvironmentVariable),
             }
-        .Concat(PendingConfigSetCredential(parsed))
-        .Where(value => !string.IsNullOrWhiteSpace(value))
-        .Select(value => value!)
-        .Distinct(StringComparer.Ordinal)
-        .ToArray();
+            .Concat(PendingConfigSetCredential(parsed))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         return secrets;
 
         string? Lookup(string name) => _dependencies.Environment is null
