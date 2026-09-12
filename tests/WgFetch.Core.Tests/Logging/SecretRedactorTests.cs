@@ -208,6 +208,16 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void RedactUrl_does_not_treat_an_unrelated_parameter_merely_ending_in_a_sensitive_substring_as_sensitive()
+    {
+        // "monkey" ends with "key" but is not a credential parameter: a bare substring-suffix match
+        // (without a word-boundary check) would wrongly redact it.
+        const string url = "https://host.example/zoo?animal=monkey&q=nina";
+
+        Assert.Equal(url, SecretRedactor.RedactUrl(url));
+    }
+
+    [Fact]
     public void Redact_matches_a_lowercase_percent_encoded_known_secret_outside_a_url()
     {
         // Uri.EscapeDataString produces uppercase hex ("%2F"); a caller rendering the same secret

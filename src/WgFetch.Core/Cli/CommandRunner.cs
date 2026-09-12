@@ -144,7 +144,8 @@ public sealed partial class CommandRunner
         {
             config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or PathTooLongException)
         {
             var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;
             var message = SecretRedactor.Redact(

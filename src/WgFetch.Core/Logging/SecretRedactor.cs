@@ -20,8 +20,11 @@ public static partial class SecretRedactor
     };
 
     // Vendor-specific and custom credential parameters (for example "X-Amz-Signature" or
-    // "custom_token") vary too widely to enumerate exactly, so any normalized name ending in one of
-    // these suffixes is treated as sensitive too (docs/REQUIREMENTS.md, "Privacy").
+    // "custom_token") vary too widely to enumerate exactly, so a normalized name ending in one of
+    // these suffixes at a word boundary (a separator or a camelCase transition in the original name,
+    // checked by IsSensitiveParameterName) is treated as sensitive too. A plain substring suffix match
+    // would also flag unrelated names such as "monkey" (ends in "key"), so the boundary check is
+    // required (docs/REQUIREMENTS.md, "Privacy").
     private static readonly string[] SensitiveQueryKeySuffixes =
     [
         "key", "token", "secret", "signature", "password", "credential", "auth",
@@ -238,13 +241,54 @@ public static partial class SecretRedactor
 
         foreach (var suffix in SensitiveQueryKeySuffixes)
         {
-            if (normalized.EndsWith(suffix, StringComparison.Ordinal))
+            if (normalized.EndsWith(suffix, StringComparison.Ordinal) &&
+                HasWordBoundaryBeforeSuffix(name, suffix.Length))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True when the suffix of length <paramref name="suffixLength"/> that ends a normalized
+    /// parameter name is preceded, in the original (un-normalized) <paramref name="originalName"/>,
+    /// by a separator (<c>-</c>, <c>_</c>, <c>.</c>, whitespace) or a camelCase transition (a
+    /// lower-case character followed by an upper-case one) — or the suffix is the entire name.
+    /// Without this boundary check, an unrelated parameter that merely ends with a sensitive
+    /// substring, such as "monkey" ending in "key", would be wrongly treated as sensitive.
+    /// </summary>
+    private static bool HasWordBoundaryBeforeSuffix(string originalName, int suffixLength)
+    {
+        Span<int> keptIndices = originalName.Length <= 64 ? stackalloc int[originalName.Length] : new int[originalName.Length];
+        var keptCount = 0;
+        for (var i = 0; i < originalName.Length; i++)
+        {
+            var character = originalName[i];
+            if (character is '-' or '_' or '.' || char.IsWhiteSpace(character))
+            {
+                continue;
+            }
+
+            keptIndices[keptCount++] = i;
+        }
+
+        var suffixStartKeptIndex = keptCount - suffixLength;
+        if (suffixStartKeptIndex <= 0)
+        {
+            return true;
+        }
+
+        var suffixStart = keptIndices[suffixStartKeptIndex];
+        var previousKept = keptIndices[suffixStartKeptIndex - 1];
+        if (suffixStart - previousKept > 1)
+        {
+            // A separator character sat between the previous kept character and the suffix.
+            return true;
+        }
+
+        return char.IsUpper(originalName[suffixStart]) && !char.IsUpper(originalName[previousKept]);
     }
 
     /// <summary>
