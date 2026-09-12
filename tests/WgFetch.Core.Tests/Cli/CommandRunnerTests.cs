@@ -139,6 +139,37 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task NoCommand_RedactsSecretInSourcePath()
+    {
+        using var temp = new TempDirectory();
+        const string secret = "topsecret-token-12345";
+        var output = temp.Combine($"repo-{secret}");
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(output),
+            CancellationToken.None);
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            $$"""{"outputDirectory":"{{output.Replace("\\", "\\\\", StringComparison.Ordinal)}}","aiKey":"{{secret}}"}""",
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "dumb", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.DoesNotContain(secret, stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoCommand_ManifestPresentButAssetsMissing_ShowsNotInstalled()
     {
         // A bare install-manifest.json with none of the pinned model files on disk must never be

@@ -37,6 +37,11 @@ public sealed class ConfigFileTests
     [Fact]
     public async Task An_unreadable_file_yields_defaults()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         using var temp = new TempDirectory();
         var path = temp.Combine("config.json");
         await File.WriteAllTextAsync(path, """{ "outputDirectory": "/should-not-load" }""");

@@ -206,6 +206,7 @@ public sealed partial class CommandRunner
         }
         var environment = BuildTerminalEnvironment(settings);
         var terminal = TerminalCapability.Detect(environment);
+        var displayOutputDirectory = SecretRedactor.Redact(settings.OutputDirectory, _activeSecrets);
 
         TargetsDocument? targets = null;
         string? targetsError = null;
@@ -261,7 +262,7 @@ public sealed partial class CommandRunner
         {
             console.Write(SplashScreen.CreateStatus(
                 targets,
-                settings.OutputDirectory,
+                displayOutputDirectory,
                 prerequisitesPresent,
                 now,
                 targetsError));
@@ -271,7 +272,7 @@ public sealed partial class CommandRunner
             SplashScreen.WriteStatus(
                 _stdout,
                 targets,
-                settings.OutputDirectory,
+                displayOutputDirectory,
                 prerequisitesPresent,
                 now,
                 targetsError);

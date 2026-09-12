@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
 using YamlDotNet.RepresentationModel;
@@ -49,7 +50,6 @@ public static class TargetsFile
 
         if (OperatingSystem.IsLinux())
         {
-            bool skipLinuxProbe = false;
             try
             {
                 var attributes = File.GetAttributes(path);
@@ -61,7 +61,13 @@ public static class TargetsFile
                     { FilePath = path };
                 }
 
-                skipLinuxProbe = (attributes & FileAttributes.ReadOnly) != 0;
+                if (!LinuxFileType.IsRegular(path))
+                {
+                    throw new TargetsFileException(
+                        $"{path} is unreadable or malformed: path is not a regular file.",
+                        new IOException("path is not a regular file."))
+                    { FilePath = path };
+                }
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
@@ -78,29 +84,6 @@ public static class TargetsFile
                 throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
             }
 
-            if (!skipLinuxProbe)
-            {
-                try
-                {
-                    using var probe = File.OpenHandle(
-                        path,
-                        FileMode.Open,
-                        FileAccess.ReadWrite,
-                        FileShare.ReadWrite | FileShare.Delete);
-                    // RandomAccess.GetLength throws NotSupportedException on FIFOs/non-seekable handles.
-                    _ = RandomAccess.GetLength(probe);
-                }
-                catch (NotSupportedException ex)
-                {
-                    throw new TargetsFileException(
-                        $"{path} is unreadable or malformed: path is not a regular file.",
-                        ex) { FilePath = path };
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
-                }
-            }
         }
 
         string text;
@@ -108,6 +91,7 @@ public static class TargetsFile
         {
             text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
         }
+
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             // A missing file (or a missing parent directory) is not an error: it means no targets have
@@ -129,6 +113,32 @@ public static class TargetsFile
             // cause rather than nesting one "unreadable or malformed" message inside another.
             var cause = ex is TargetsFileException ? ex.InnerException ?? ex : ex;
             throw new TargetsFileException($"{path} is unreadable or malformed: {cause.Message}", cause) { FilePath = path };
+        }
+    }
+
+    private static class LinuxFileType
+    {
+        private const ushort FileTypeMask = 0xF000;
+        private const ushort RegularFile = 0x8000;
+
+        internal static bool IsRegular(string path)
+        {
+            if (Statx(-100, path, 0, 1, out var stat) != 0)
+            {
+                throw new IOException($"Unable to inspect file type (errno {Marshal.GetLastPInvokeError()}).");
+            }
+
+            return (stat.Mode & FileTypeMask) == RegularFile;
+        }
+
+        [DllImport("libc", EntryPoint = "statx", SetLastError = true)]
+        private static extern int Statx(int directoryFileDescriptor, string path, int flags, uint mask, out LinuxStatx stat);
+
+        [StructLayout(LayoutKind.Explicit, Size = 256)]
+        private struct LinuxStatx
+        {
+            [FieldOffset(28)]
+            internal ushort Mode;
         }
     }
 
