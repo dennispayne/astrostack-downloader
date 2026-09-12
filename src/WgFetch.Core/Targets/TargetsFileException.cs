@@ -22,5 +22,5 @@ public sealed class TargetsFileException : Exception
     }
 
     /// <summary>The offending file, when known.</summary>
-    public string? Path { get; init; }
+    public string? FilePath { get; init; }
 }

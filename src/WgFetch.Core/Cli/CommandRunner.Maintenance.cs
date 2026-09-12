@@ -38,7 +38,7 @@ public sealed partial class CommandRunner
         }
         catch (Exception ex) when (ex is FormatException or YamlException or IOException or UnauthorizedAccessException)
         {
-            throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { Path = path };
+            throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
         }
     }
 

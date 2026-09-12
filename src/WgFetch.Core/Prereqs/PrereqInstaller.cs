@@ -142,12 +142,12 @@ public sealed class PrereqInstaller
         {
             foreach (var model in models)
             {
-                var directory = ModelDirectory(modelsRoot, model);
                 if (model.Assets.Count == 0)
                 {
                     return false;
                 }
 
+                var directory = ModelDirectory(modelsRoot, model);
                 foreach (var asset in model.Assets)
                 {
                     if (!asset.IsPinned)
