@@ -9,6 +9,7 @@ using WgFetch.Core.Output;
 using WgFetch.Core.Prereqs;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
+using YamlDotNet.Core;
 
 namespace WgFetch.Core.Cli;
 
@@ -18,12 +19,27 @@ namespace WgFetch.Core.Cli;
 /// </summary>
 public sealed partial class CommandRunner
 {
+    /// <summary>
+    /// Loads <c>targets.yaml</c> for a command. A missing file is an empty document, but a file that
+    /// exists and cannot be read or parsed fails closed as a <see cref="TargetsFileException"/> that
+    /// <see cref="RunAsync"/> turns into a message and a usage exit code — never a crash.
+    /// </summary>
     private async Task<TargetsDocument> LoadTargetsAsync(RunSettings settings, CancellationToken cancellationToken)
     {
         var path = TargetsPath(settings);
-        return File.Exists(path)
-            ? await TargetsFile.LoadAsync(path, cancellationToken).ConfigureAwait(false)
-            : new TargetsDocument();
+        if (!File.Exists(path))
+        {
+            return new TargetsDocument();
+        }
+
+        try
+        {
+            return await TargetsFile.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is FormatException or YamlException or IOException or UnauthorizedAccessException)
+        {
+            throw new TargetsFileException(path, $"{path} is unreadable or malformed: {ex.Message}", ex);
+        }
     }
 
     private async Task<ExitCode> AddAsync(

@@ -292,6 +292,52 @@ public sealed class CommandRunnerTests
         Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("status", null)]
+    [InlineData("remove", "nina")]
+    public async Task Command_MalformedTargets_FailsClosedWithUsageError(string command, string? argument)
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(temp.Path, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+        });
+
+        string[] args = argument is null ? [command] : [command, argument];
+        var exit = await runner.RunAsync(args, CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unreadable or malformed", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Command_SchemaInvalidTargets_FailsClosedWithUsageError()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(
+            Path.Combine(temp.Path, "targets.yaml"),
+            """
+            ? [invalid]
+            : value
+            targets: []
+            """,
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+        });
+
+        var exit = await runner.RunAsync(["status"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unreadable or malformed", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task NoCommand_Cancelled_ReturnsCancelledExitCode()
     {

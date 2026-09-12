@@ -119,6 +119,56 @@ public sealed class PrereqInstaller
         return result;
     }
 
+    /// <summary>
+    /// Hashing-free readiness probe for latency-sensitive, cosmetic paths such as the no-command
+    /// landing view: every pinned asset must exist and, where a size is pinned, match it on disk.
+    /// Full digest verification stays in <see cref="StatusAsync(string, CancellationToken)"/>, which
+    /// <c>prereqs status</c> and <c>verify</c> use — a bare <c>wgfetch</c> must never spend seconds
+    /// hashing model files. Unreadable trees report "not ready" rather than throwing.
+    /// </summary>
+    public static bool QuickReady(string modelsRoot, IReadOnlyList<PinnedModel> models)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelsRoot);
+        ArgumentNullException.ThrowIfNull(models);
+
+        if (models.Count == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (var model in models)
+            {
+                var directory = ModelDirectory(modelsRoot, model);
+                if (model.Assets.Count == 0)
+                {
+                    return false;
+                }
+
+                foreach (var asset in model.Assets)
+                {
+                    if (!asset.IsPinned)
+                    {
+                        return false;
+                    }
+
+                    var info = new FileInfo(Path.Combine(directory, asset.RelativePath));
+                    if (!info.Exists || (asset.SizeBytes is { } expected && info.Length != expected))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>The exact command a user must run when a model is missing.</summary>
     public static string MissingModelMessage(PinnedModel model)
     {

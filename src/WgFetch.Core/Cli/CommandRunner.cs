@@ -115,6 +115,12 @@ public sealed partial class CommandRunner
             _stderr.WriteLine("wgfetch: cancelled.");
             return ExitCode.Cancelled;
         }
+        catch (TargetsFileException ex)
+        {
+            _stderr.WriteLine($"wgfetch: {ex.Message}");
+            _stderr.WriteLine("Fix the file by hand, or move it aside and re-add your targets.");
+            return ExitCode.UsageError;
+        }
         finally
         {
             _events?.Flush();
@@ -204,7 +210,7 @@ public sealed partial class CommandRunner
                 targets = await TargetsFile.LoadAsync(targetsPath, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (Exception ex) when (ex is IOException or FormatException or YamlException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or YamlException)
         {
             targetsError = "unable to read targets.yaml";
             _stderr.WriteLine($"wgfetch: {targetsError}.");
@@ -229,13 +235,13 @@ public sealed partial class CommandRunner
 
         _stdout.Flush();
 
-        // The default prereqs install intentionally installs only the required embedding model; Phi is
-        // optional unless --include-llm is requested, so it must not make the landing report "not installed."
-        var prerequisiteStatuses = await PrereqInstaller.StatusAsync(
-            settings.ModelsRoot,
-            [PinnedModels.Embedding],
-            cancellationToken).ConfigureAwait(false);
-        var prerequisitesInstalled = PrerequisitesReady(prerequisiteStatuses);
+        // The landing view is cosmetic and must stay fast, so readiness uses the hashing-free presence
+        // probe; full digest verification belongs to 'prereqs status' and 'verify'. It is also only
+        // computed when a status block will actually show it — the first-run hint never does. The
+        // default install intentionally installs only the required embedding model (Phi is optional
+        // unless --include-llm is requested), so only that model may make the landing report state.
+        var prerequisitesInstalled = (targets is not null || targetsError is not null) &&
+            PrereqInstaller.QuickReady(settings.ModelsRoot, [PinnedModels.Embedding]);
         var now = _dependencies.TimeProvider.GetUtcNow();
         if (console is not null)
         {
@@ -268,13 +274,6 @@ public sealed partial class CommandRunner
     /// </summary>
     private bool IsOutputRedirected() =>
         _dependencies.TerminalEnvironment?.OutputRedirected ?? Console.IsOutputRedirected;
-
-    /// <summary>
-    /// Every required model must be present and report <see cref="PrereqState.Present"/>; an empty
-    /// status list is treated as "not ready" rather than vacuously true.
-    /// </summary>
-    private static bool PrerequisitesReady(IReadOnlyList<PrereqModelStatus> statuses) =>
-        statuses.Count > 0 && statuses.All(model => model.Ready);
 
     private void WriteUsageErrors(ParsedCommandLine parsed)
     {
