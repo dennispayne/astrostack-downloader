@@ -23,7 +23,16 @@ internal static class RegularFileText
     internal static Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken) =>
         OperatingSystem.IsLinux()
             ? LinuxReader.ReadAllTextAsync(path, maxBytes, cancellationToken)
-            : File.ReadAllTextAsync(path, cancellationToken);
+            : ReadManagedAsync(path, maxBytes, cancellationToken);
+
+    private static async Task<string> ReadManagedAsync(string path, int maxBytes, CancellationToken cancellationToken)
+    {
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        await using (stream.ConfigureAwait(false))
+        {
+            return await ReadBoundedAsync(stream, maxBytes, typeVerified: true, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>
     /// Reads at most <paramref name="maxBytes"/>. A file type this build could not identify must still
@@ -38,7 +47,7 @@ internal static class RegularFileText
         bool typeVerified,
         CancellationToken cancellationToken)
     {
-        var lengthIsKnown = !typeVerified && stream.CanSeek && stream.Length > 0;
+        var lengthIsKnown = stream.CanSeek && stream.Length > 0;
         using var content = new MemoryStream();
         var chunk = new byte[ChunkBytes];
         int read;
