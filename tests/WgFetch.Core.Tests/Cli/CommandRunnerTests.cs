@@ -299,6 +299,44 @@ public sealed class CommandRunnerTests
         Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task NoCommand_InvalidSizedEmbeddingAsset_IsNotReportedPresent(int invalidSizeCase)
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        Assert.True(PinnedModels.Embedding.Assets[0].SizeBytes.HasValue, "The invalid-size regression requires a sized first asset.");
+        var firstAssetSize = invalidSizeCase == 0
+            ? 0
+            : PinnedModels.Embedding.Assets[0].SizeBytes.GetValueOrDefault() + 1;
+        var modelsRoot = temp.Combine("models");
+        WriteSparseEmbeddingAssets(modelsRoot, firstAssetSizeOverride: firstAssetSize);
+
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains(PrereqsNotInstalled, stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task NoCommand_Json_WritesUsageErrorToStandardError()
     {
@@ -373,7 +411,10 @@ public sealed class CommandRunnerTests
         Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
     }
 
-    private static void WriteSparseEmbeddingAssets(string modelsRoot, bool truncateFirstAsset = false)
+    private static void WriteSparseEmbeddingAssets(
+        string modelsRoot,
+        bool truncateFirstAsset = false,
+        long? firstAssetSizeOverride = null)
     {
         // QuickReady is intentionally metadata-only for startup latency; these sparse files exercise its
         // size checks without hashing or writing model-sized byte content.
@@ -388,6 +429,10 @@ public sealed class CommandRunnerTests
             {
                 Assert.True(size > 0, "The truncated-asset regression requires a non-empty pinned asset.");
                 size--;
+            }
+            else if (firstAssetSizeOverride.HasValue && i == 0)
+            {
+                size = firstAssetSizeOverride.Value;
             }
 
             using var file = File.Create(path);
