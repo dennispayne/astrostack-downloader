@@ -303,7 +303,6 @@ public sealed class CommandRunnerTests
     [MemberData(nameof(InvalidSizedEmbeddingAssets))]
     public async Task NoCommand_InvalidSizedEmbeddingAsset_IsNotReportedPresent(string sizeCase, long firstAssetSize)
     {
-        Assert.False(string.IsNullOrWhiteSpace(sizeCase));
         using var temp = new TempDirectory();
         await TargetsFile.SaveAsync(
             new TargetsDocument
@@ -327,10 +326,15 @@ public sealed class CommandRunnerTests
         });
 
         var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+        var rendered = stdout.ToString();
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains(PrereqsNotInstalled, stdout.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
+        Assert.True(
+            rendered.Contains(PrereqsNotInstalled, StringComparison.Ordinal),
+            $"{sizeCase}: expected the landing view to report invalid-sized assets as not installed.");
+        Assert.False(
+            rendered.Contains(PrereqsPresentUnverified, StringComparison.Ordinal),
+            $"{sizeCase}: expected the landing view not to report invalid-sized assets as present.");
     }
 
     public static TheoryData<string, long> InvalidSizedEmbeddingAssets()
