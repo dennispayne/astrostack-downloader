@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using WgFetch.Core.Abstractions;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
@@ -309,6 +310,10 @@ public static class TargetsFile
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         string text = Render(document);
+        if (Encoding.UTF8.GetByteCount(text) > MaxFileBytes)
+        {
+            throw new IOException($"targets.yaml is larger than the {MaxFileBytes} byte limit.");
+        }
 
         string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(directory))

@@ -141,6 +141,19 @@ public sealed class ConfigFileTests
         Assert.Equal("machine", (await ConfigFile.LoadAsync(path, CancellationToken.None)).Scope);
         Assert.False(File.Exists(path + ".tmp"));
     }
+
+    [Fact]
+    public async Task SaveAsync_RejectsFilesTooLargeForLoadAsync()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+        var config = new WgFetchConfig { OutputDirectory = new string('x', 1024 * 1024) };
+
+        var ex = await Assert.ThrowsAsync<IOException>(() => ConfigFile.SaveAsync(config, path, CancellationToken.None));
+
+        Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(path));
+    }
 }
 
 public sealed class ConfigRedactionTests

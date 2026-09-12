@@ -473,6 +473,18 @@ public class TargetsFileTests
     }
 
     [Fact]
+    public async Task LoadAsync_EmbeddedNulPath_FailsClosedInsteadOfReadingPrefix()
+    {
+        using var temp = new TempDirectory();
+        var prefix = temp.Combine("targets.yaml");
+        await File.WriteAllTextAsync(prefix, "version: 1\ntargets: []\n", CancellationToken.None);
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(prefix + "\0suffix"));
+
+        Assert.Contains("embedded NUL", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SaveAsync_ThenLoadAsync_RoundTrips_AndLeavesNoTempFile()
     {
         string dir = Path.Combine(AppContext.BaseDirectory, $"targets-save-{Guid.NewGuid():N}");
@@ -523,6 +535,25 @@ public class TargetsFileTests
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task SaveAsync_RejectsFilesTooLargeForLoadAsync()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("targets.yaml");
+        var doc = new TargetsDocument
+        {
+            ExtraFields = new Dictionary<string, YamlNode>(StringComparer.Ordinal)
+            {
+                ["huge"] = new YamlScalarNode(new string('x', 8 * 1024 * 1024)),
+            },
+        };
+
+        var ex = await Assert.ThrowsAsync<IOException>(() => TargetsFile.SaveAsync(doc, path));
+
+        Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(path));
     }
 
     [Fact]

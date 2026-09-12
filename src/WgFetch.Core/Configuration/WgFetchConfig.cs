@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WgFetch.Core.Abstractions;
@@ -134,13 +135,13 @@ public static class ConfigFile
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         var temp = path + ".tmp";
-        await using (var stream = File.Create(temp))
+        var text = JsonSerializer.Serialize(config, ConfigJsonContext.Default.WgFetchConfig);
+        if (Encoding.UTF8.GetByteCount(text) > MaxConfigBytes)
         {
-            await JsonSerializer
-                .SerializeAsync(stream, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
-                .ConfigureAwait(false);
+            throw new IOException($"config is larger than the {MaxConfigBytes} byte limit.");
         }
 
+        await File.WriteAllTextAsync(temp, text, cancellationToken).ConfigureAwait(false);
         File.Move(temp, path, overwrite: true);
     }
 }

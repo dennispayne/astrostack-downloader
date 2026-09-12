@@ -294,7 +294,7 @@ public sealed partial class CommandRunner
     {
         foreach (var error in parsed.Errors)
         {
-            _stderr.WriteLine($"wgfetch: {error}");
+            _stderr.WriteLine($"wgfetch: {TerminalSafe(error)}");
         }
 
         _stderr.WriteLine("Run 'wgfetch --help' for usage.");

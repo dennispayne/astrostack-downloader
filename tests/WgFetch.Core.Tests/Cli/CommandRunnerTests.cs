@@ -421,6 +421,21 @@ public sealed class CommandRunnerTests
         Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task UsageError_SanitizesParserSuppliedText()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr);
+
+        var exit = await runner.RunAsync(["bad\u001b[31m"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Empty(stdout.ToString());
+        Assert.DoesNotContain("\u001b", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("bad?[31m", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     private static void WriteSparseEmbeddingAssets(string modelsRoot, long? firstAssetSizeOverride = null)
     {
         // The no-command prerequisite probe is intentionally metadata-only for startup latency; these

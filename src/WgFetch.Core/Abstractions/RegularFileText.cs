@@ -21,12 +21,19 @@ internal static class RegularFileText
     /// path is not a readable regular file, holds more than <paramref name="maxBytes"/>, or runs on an
     /// unsupported platform.
     /// </summary>
-    internal static Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken) =>
-        OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
+    internal static Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)
+    {
+        if (path.Contains('\0'))
+        {
+            return Task.FromException<string>(new IOException("path contains an embedded NUL character."));
+        }
+
+        return OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
             ? UnixReader.ReadAllTextAsync(path, maxBytes, cancellationToken)
             : OperatingSystem.IsWindows()
                 ? WindowsReader.ReadAllTextAsync(path, maxBytes, cancellationToken)
                 : Task.FromException<string>(new IOException("unable to verify that the path is a regular file on this platform."));
+    }
 
     /// <summary>
     /// Reads at most <paramref name="maxBytes"/> from a handle that has already been proven regular.
