@@ -61,6 +61,7 @@ public sealed partial class CommandRunner
     private RedactingConsoleLoggerProvider? _loggerProvider;
     private IProgressRenderer _progress = new PlainProgressRenderer(TextWriter.Null);
     private bool _humanToStderr;
+    private IReadOnlyList<string> _activeSecrets = Array.Empty<string>();
 
     public CommandRunner(TextWriter stdout, TextWriter stderr, RunnerDependencies? dependencies = null)
     {
@@ -76,6 +77,7 @@ public sealed partial class CommandRunner
     public async Task<ExitCode> RunAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(args);
+        _activeSecrets = Array.Empty<string>();
 
         var parsed = CommandLineParser.Parse(args);
 
@@ -116,7 +118,7 @@ public sealed partial class CommandRunner
         }
         catch (TargetsFileException ex)
         {
-            _stderr.WriteLine($"wgfetch: {TerminalTextSanitizer.Sanitize(ex.Message)}");
+            _stderr.WriteLine($"wgfetch: {TerminalSafe(ex.Message)}");
             _stderr.WriteLine("Fix the file by hand, or move it aside and re-add your targets.");
             return ExitCode.UsageError;
         }
@@ -340,15 +342,19 @@ public sealed partial class CommandRunner
         try
         {
             settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
+            _activeSecrets = settings.Secrets;
             return true;
         }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            _stderr.WriteLine($"wgfetch: invalid configuration or option value: {TerminalTextSanitizer.Sanitize(ex.Message)}");
+            _stderr.WriteLine($"wgfetch: invalid configuration or option value: {TerminalSafe(ex.Message)}");
             settings = null;
             return false;
         }
     }
+
+    private string TerminalSafe(string value) =>
+        TerminalTextSanitizer.Sanitize(SecretRedactor.Redact(value, _activeSecrets));
 
     /// <summary>
     /// Human-readable output. With <c>--json</c>, stdout belongs exclusively to the event stream, so

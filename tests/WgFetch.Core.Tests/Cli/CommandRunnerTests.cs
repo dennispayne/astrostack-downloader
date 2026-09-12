@@ -366,6 +366,30 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task Command_TargetsError_RedactsConfiguredSecrets()
+    {
+        using var temp = new TempDirectory();
+        var secret = "topsecret-token-12345";
+        var output = temp.Combine($"repo-{secret}");
+        Directory.CreateDirectory(output);
+        await File.WriteAllTextAsync(Path.Combine(output, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            $$"""{"outputDirectory":"{{output.Replace("\\", "\\\\", StringComparison.Ordinal)}}","aiKey":"{{secret}}"}""",
+            CancellationToken.None);
+
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(new StringWriter(), stderr, new RunnerDependencies());
+
+        var exit = await runner.RunAsync(["status", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.DoesNotContain(secret, stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NoCommand_Cancelled_ReturnsCancelledExitCode()
     {
         var (runner, _, stderr) = CreateRunner();

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using WgFetch.Core.Targets;
 using WgFetch.Core.Tests.Support;
 using YamlDotNet.RepresentationModel;
@@ -298,6 +299,36 @@ public class TargetsFileTests
 
         Assert.Equal(TargetsDocument.CurrentSchemaVersion, doc.Version);
         Assert.Empty(doc.Targets);
+    }
+
+    [Fact]
+    public async Task LoadAsync_FifoPath_FailsClosedWithoutBlocking()
+    {
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
+        {
+            return;
+        }
+
+        using var temp = new TempDirectory();
+        var path = Path.Combine(temp.Path, "targets.yaml");
+        using var mkfifo = Process.Start(new ProcessStartInfo
+        {
+            FileName = "mkfifo",
+            ArgumentList = { path },
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+        });
+        Assert.NotNull(mkfifo);
+        await mkfifo.WaitForExitAsync(CancellationToken.None);
+        Assert.Equal(0, mkfifo.ExitCode);
+
+        var loadTask = TargetsFile.LoadAsync(path);
+        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(2)));
+
+        Assert.Same(loadTask, completed);
+
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
+        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
