@@ -242,8 +242,8 @@ internal static class RegularFileText
         private const uint OpenExisting = 3;
         private const uint FileFlagOverlapped = 0x40000000;
         private const uint FileTypeDisk = 1;
-        private const int FileNotFound = 2;
-        private const int PathNotFound = 3;
+        private const int Win32ErrorFileNotFound = 2;
+        private const int Win32ErrorPathNotFound = 3;
 
         internal static async Task<string> ReadAllTextAsync(string path, int maxBytes, CancellationToken cancellationToken)
         {
@@ -253,8 +253,8 @@ internal static class RegularFileText
                 var error = Marshal.GetLastPInvokeError();
                 throw error switch
                 {
-                    FileNotFound => new FileNotFoundException($"Could not find file '{path}'.", path),
-                    PathNotFound => new DirectoryNotFoundException($"Could not find a part of the path '{path}'."),
+                    Win32ErrorFileNotFound => new FileNotFoundException($"Could not find file '{path}'.", path),
+                    Win32ErrorPathNotFound => new DirectoryNotFoundException($"Could not find a part of the path '{path}'."),
                     _ => new IOException($"unable to open the file (Win32 error {error})."),
                 };
             }
