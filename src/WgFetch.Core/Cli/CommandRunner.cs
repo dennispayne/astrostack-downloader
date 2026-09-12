@@ -230,13 +230,13 @@ public sealed partial class CommandRunner
     {
         var secrets = new[] {
                 parsed.Value("--ai-key"),
-                Lookup("WGFETCH_AI_KEY"),
+                Lookup(RunSettings.AiKeyEnvironmentVariable),
                 config.AiKey,
                 parsed.Value("--search-key"),
-                Lookup("WGFETCH_SEARCH_KEY"),
+                Lookup(RunSettings.SearchKeyEnvironmentVariable),
                 config.SearchKey,
                 parsed.Value("--github-token"),
-                Lookup("GITHUB_TOKEN"),
+                Lookup(RunSettings.GithubTokenEnvironmentVariable),
                 config.GithubToken,
             }
             .Where(value => !string.IsNullOrWhiteSpace(value))

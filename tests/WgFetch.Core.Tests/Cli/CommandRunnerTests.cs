@@ -463,17 +463,26 @@ public sealed class CommandRunnerTests
     public async Task Config_set_does_not_overwrite_a_malformed_existing_config()
     {
         using var temp = new TempDirectory();
-        var configPath = temp.Combine("config.json");
+        const string pathSecret = "path-token-secret";
+        var directory = temp.Combine(pathSecret);
+        Directory.CreateDirectory(directory);
+        var configPath = Path.Combine(directory, "config.json");
         const string malformed = "{ this is not json";
         await File.WriteAllTextAsync(configPath, malformed, CancellationToken.None);
-        var (runner, _, stderr) = CreateRunner();
+        var environment = new Dictionary<string, string?>
+        {
+            ["CI"] = "true",
+            ["WGFETCH_AI_KEY"] = pathSecret,
+        };
+        var (runner, _, stderr) = CreateRunner(environment: environment);
 
         var exit = await runner.RunAsync(
             ["config", "set", "plain", "true", "--config", configPath],
             CancellationToken.None);
 
-        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Equal(ExitCode.ConfigurationError, exit);
         Assert.Contains("malformed", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(pathSecret, stderr.ToString(), StringComparison.Ordinal);
         Assert.Equal(malformed, await File.ReadAllTextAsync(configPath, CancellationToken.None));
     }
 

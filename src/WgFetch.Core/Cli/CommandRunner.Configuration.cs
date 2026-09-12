@@ -106,7 +106,8 @@ public sealed partial class CommandRunner
             }
             catch (InvalidDataException exception)
             {
-                console.MarkupLine($"[red]{Markup.Escape(exception.Message)}[/]");
+                var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
+                console.MarkupLine($"[red]{Markup.Escape(display)}[/]");
                 continue;
             }
             if (persisted is null)
@@ -252,7 +253,8 @@ public sealed partial class CommandRunner
             }
             catch (InvalidDataException exception)
             {
-                console.MarkupLine($"[red]{Markup.Escape(exception.Message)}[/]");
+                var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
+                console.MarkupLine($"[red]{Markup.Escape(display)}[/]");
                 return ExitCode.Success;
             }
             if (persisted is null)

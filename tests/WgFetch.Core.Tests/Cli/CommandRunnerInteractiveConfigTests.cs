@@ -46,7 +46,8 @@ public sealed class CommandRunnerInteractiveConfigTests
     private static (CommandRunner Runner, StringWriter Out, StringWriter Error) CreateInteractiveRunner(
         TestConsole console,
         IReadOnlyList<PinnedModel>? models = null,
-        StubHttpGateway? http = null)
+        StubHttpGateway? http = null,
+        IReadOnlyDictionary<string, string?>? environment = null)
     {
         var stdout = new StringWriter();
         var stderr = new StringWriter();
@@ -56,6 +57,7 @@ public sealed class CommandRunnerInteractiveConfigTests
             InteractiveConsole = console,
             InteractiveTerminalOverride = true,
             PrereqModels = models,
+            Environment = environment,
         });
 
         return (runner, stdout, stderr);
@@ -192,7 +194,10 @@ public sealed class CommandRunnerInteractiveConfigTests
     public async Task Interactive_models_root_edit_reports_malformed_config_and_returns_to_the_menu()
     {
         using var temp = new TempDirectory();
-        var configPath = temp.Combine("config.json");
+        const string pathSecret = "path-token-secret";
+        var directory = temp.Combine(pathSecret);
+        Directory.CreateDirectory(directory);
+        var configPath = Path.Combine(directory, "config.json");
         const string malformed = "{ this is not json";
         await File.WriteAllTextAsync(configPath, malformed, CancellationToken.None);
         var console = CreateInteractiveConsole();
@@ -200,12 +205,17 @@ public sealed class CommandRunnerInteractiveConfigTests
         SelectByIndex(console, 1); // Change models root follows install-all when no models are configured.
         console.Input.PushTextWithEnter(temp.Combine("models"));
         SelectByIndex(console, ExitIndex);
-        var (runner, _, _) = CreateInteractiveRunner(console, models: []);
+        var environment = new Dictionary<string, string?>
+        {
+            ["WGFETCH_AI_KEY"] = pathSecret,
+        };
+        var (runner, _, _) = CreateInteractiveRunner(console, models: [], environment: environment);
 
         var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
 
         Assert.Equal(ExitCode.Success, exit);
         Assert.Contains("malformed", console.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(pathSecret, console.Output, StringComparison.Ordinal);
         Assert.Equal(malformed, await File.ReadAllTextAsync(configPath, CancellationToken.None));
     }
 

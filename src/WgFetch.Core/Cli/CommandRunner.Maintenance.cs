@@ -111,8 +111,8 @@ public sealed partial class CommandRunner
                 }
                 catch (InvalidDataException exception)
                 {
-                    _stderr.WriteLine($"wgfetch config set: {exception.Message}");
-                    return ExitCode.UsageError;
+                    _stderr.WriteLine($"wgfetch config set: {SecretRedactor.Redact(exception.Message, redactionSecrets)}");
+                    return ExitCode.ConfigurationError;
                 }
                 if (updated is null)
                 {
@@ -150,8 +150,8 @@ public sealed partial class CommandRunner
                 }
                 catch (InvalidDataException exception)
                 {
-                    _stderr.WriteLine($"wgfetch config unset: {exception.Message}");
-                    return ExitCode.UsageError;
+                    _stderr.WriteLine($"wgfetch config unset: {SecretRedactor.Redact(exception.Message, redactionSecrets)}");
+                    return ExitCode.ConfigurationError;
                 }
                 if (without is null)
                 {
