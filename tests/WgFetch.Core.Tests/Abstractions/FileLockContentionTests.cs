@@ -72,5 +72,5 @@ public sealed class FileLockContentionTests
     }
 
     private static IOException IOExceptionWithHResult(string message, int hResult)
-        => new(message) { HResult = hResult };
+        => new(message, hResult);
 }

@@ -117,7 +117,7 @@ public sealed record WgFetchConfig
                     StringComparison.Ordinal);
             }
 
-            return Logging.SecretRedactor.Redact(redacted);
+            return Logging.SecretRedactor.Redact(redacted, secrets);
         }
 
         // Endpoints are URLs that may carry a configured credential as a query value or userinfo,

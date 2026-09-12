@@ -78,19 +78,33 @@ public sealed partial class CommandRunner
                 }
                 catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
                 {
-                    console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(value)}");
+                    var display = Logging.SecretRedactor.Redact(value, current.Secrets);
+                    console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(display)}");
                     continue;
                 }
             }
 
-            if (!ConfigSettings.TrySet(current, choice, value, out var updated, out var error))
+            string? updateError = null;
+            var persisted = await ConfigFile.TryUpdateAsync(
+                path,
+                latest =>
+                {
+                    updateError = null;
+                    if (!ConfigSettings.TrySet(latest, choice, value, out var merged, out updateError))
+                    {
+                        return null;
+                    }
+
+                    return merged;
+                },
+                cancellationToken).ConfigureAwait(false);
+            if (persisted is null)
             {
-                console.MarkupLine($"[red]{Markup.Escape(error!)}[/]");
+                console.MarkupLine($"[red]{Markup.Escape(updateError ?? $"Failed to save '{choice}'.")}[/]");
                 continue;
             }
 
-            await ConfigFile.SaveAsync(updated, path, cancellationToken).ConfigureAwait(false);
-            current = updated;
+            current = persisted;
             console.MarkupLine("[green]Saved.[/]");
         }
     }
@@ -191,17 +205,31 @@ public sealed partial class CommandRunner
             }
             catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(root)}");
+                var display = Logging.SecretRedactor.Redact(root, config.Secrets);
+                console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(display)}");
                 return ExitCode.Success;
             }
 
-            if (!ConfigSettings.TrySet(config, "modelsRoot", root, out var updated, out var error))
+            string? updateError = null;
+            var persisted = await ConfigFile.TryUpdateAsync(
+                configPath,
+                latest =>
+                {
+                    updateError = null;
+                    if (!ConfigSettings.TrySet(latest, "modelsRoot", root, out var merged, out updateError))
+                    {
+                        return null;
+                    }
+
+                    return merged;
+                },
+                cancellationToken).ConfigureAwait(false);
+            if (persisted is null)
             {
-                console.MarkupLine($"[red]{Markup.Escape(error!)}[/]");
+                console.MarkupLine($"[red]{Markup.Escape(updateError ?? "Failed to save 'modelsRoot'.")}[/]");
                 return ExitCode.UsageError;
             }
 
-            await ConfigFile.SaveAsync(updated, configPath, cancellationToken).ConfigureAwait(false);
             return ExitCode.Success;
         }
 

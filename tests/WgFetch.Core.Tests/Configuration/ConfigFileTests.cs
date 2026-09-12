@@ -275,6 +275,23 @@ public sealed class ConfigRedactionTests
         Assert.Equal(SecretRedactor.Placeholder, redacted.AiKey);
     }
 
+    [Fact]
+    public void Redacted_scrubs_form_encoded_configured_secret_from_non_url_fields()
+    {
+        const string secret = "a b";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            OutputDirectory = "/tmp/a+b/source",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("a+b", redacted.OutputDirectory, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.OutputDirectory, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.OutputDirectory, StringComparison.Ordinal);
+    }
+
     public sealed class ConfigSettingsTests
     {
         [Fact]
