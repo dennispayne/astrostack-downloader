@@ -17,6 +17,8 @@ namespace WgFetch.Core.Tests.Cli;
 public sealed class CommandRunnerTests
 {
     private const string VendorUrl = "https://vendor.example.com/setup-3.1.0.exe";
+    private const string PrereqsPresentUnverified = "present (unverified)";
+    private const string PrereqsNotInstalled = "not installed";
 
     private static Recipe DemoRecipe() => new()
     {
@@ -230,7 +232,7 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("not installed", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains(PrereqsNotInstalled, stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -261,7 +263,7 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("present (unverified)", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("installed", stdout.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
@@ -293,8 +295,8 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("not installed", stdout.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain("present (unverified)", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains(PrereqsNotInstalled, stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
