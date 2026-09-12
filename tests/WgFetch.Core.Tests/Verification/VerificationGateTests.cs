@@ -39,6 +39,7 @@ public sealed class VerificationGateTests
             CancellationToken.None);
 
         Assert.Equal(VerificationStatus.NotHttps, result.FailureStatus);
+        Assert.Equal("candidate URL is not an absolute https URL", result.FailureReason);
         Assert.Empty(http.Requests);
     }
 

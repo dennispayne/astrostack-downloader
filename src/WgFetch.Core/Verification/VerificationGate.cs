@@ -310,6 +310,11 @@ public sealed class VerificationGate
 
         var candidate = request.Url;
         var candidateScheme = candidate.IsAbsoluteUri ? candidate.Scheme : string.Empty;
+        if (!candidate.IsAbsoluteUri)
+        {
+            return Failed(candidate, null, [], VerificationStatus.NotHttps, "candidate URL is not an absolute https URL");
+        }
+
         if (!string.Equals(candidateScheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
             return Failed(candidate, null, [], VerificationStatus.NotHttps, $"scheme '{candidateScheme}' is not https");
