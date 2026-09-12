@@ -70,11 +70,13 @@ public static class SplashScreen
         DateTimeOffset now,
         string? targetsError)
     {
+        var prereqsLine = FormatLine("Prereqs", prerequisitesInstalled ? "installed" : "not installed");
+
         if (targetsError is not null)
         {
-            writer.WriteLine($"{"Targets",-18} ·  {targetsError}");
-            writer.WriteLine($"{"Prereqs",-18} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
-            writer.WriteLine($"{"Source tree",-18} ·  {outputDirectory}");
+            writer.WriteLine(FormatLine("Targets", targetsError));
+            writer.WriteLine(prereqsLine);
+            writer.WriteLine(FormatLine("Source tree", outputDirectory));
             return;
         }
 
@@ -89,10 +91,13 @@ public static class SplashScreen
             ? null
             : targets.Targets.Select(target => target.LastAttempt).Max();
 
-        writer.WriteLine($"{"Targets acquired",-18} ·  {acquired,-7} {"Prereqs",-10} ·  {(prerequisitesInstalled ? "installed" : "not installed")}");
-        writer.WriteLine($"{"Source tree",-18} ·  {outputDirectory}");
-        writer.WriteLine($"{"Last attempt",-18} ·  {(lastAttempt is null ? "never" : FormatElapsed(lastAttempt.Value, now))}");
+        writer.WriteLine($"{FormatLine("Targets acquired", acquired.ToString(CultureInfo.InvariantCulture))} {prereqsLine}");
+        writer.WriteLine(FormatLine("Source tree", outputDirectory));
+        writer.WriteLine(FormatLine("Last attempt", lastAttempt is null ? "never" : FormatElapsed(lastAttempt.Value, now)));
     }
+
+    /// <summary>Formats one "label · value" status row with the column width every row shares.</summary>
+    private static string FormatLine(string label, string value) => $"{label,-18} ·  {value}";
 
     private static string FormatElapsed(DateTimeOffset time, DateTimeOffset now)
     {
