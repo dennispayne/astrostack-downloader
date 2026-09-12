@@ -54,7 +54,10 @@ public static class TargetsFile
         }
         catch (Exception ex) when (ex is FormatException or TargetsFileException)
         {
-            throw new TargetsFileException($"{path} is unreadable or malformed: {ex.Message}", ex) { FilePath = path };
+            // A TargetsFileException from Parse already describes the parser failure, so report its
+            // cause rather than nesting one "unreadable or malformed" message inside another.
+            var cause = ex is TargetsFileException ? ex.InnerException ?? ex : ex;
+            throw new TargetsFileException($"{path} is unreadable or malformed: {cause.Message}", cause) { FilePath = path };
         }
     }
 

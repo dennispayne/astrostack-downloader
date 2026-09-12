@@ -129,12 +129,19 @@ public static class SplashScreen
     /// </summary>
     private static string Sanitize(string value)
     {
-        if (!value.Any(char.IsControl))
+        char[]? sanitized = null;
+        for (var i = 0; i < value.Length; i++)
         {
-            return value;
+            if (!char.IsControl(value[i]))
+            {
+                continue;
+            }
+
+            sanitized ??= value.ToCharArray();
+            sanitized[i] = '?';
         }
 
-        return new string(value.Select(c => char.IsControl(c) ? '?' : c).ToArray());
+        return sanitized is null ? value : new string(sanitized);
     }
 
     private static string FormatElapsed(DateTimeOffset time, DateTimeOffset now)
