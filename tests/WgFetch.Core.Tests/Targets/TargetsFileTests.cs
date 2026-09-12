@@ -550,7 +550,7 @@ public class TargetsFileTests
             },
         };
 
-        var ex = await Assert.ThrowsAsync<IOException>(() => TargetsFile.SaveAsync(doc, path));
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.SaveAsync(doc, path));
 
         Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(path));
@@ -563,7 +563,7 @@ public class TargetsFileTests
         using var temp = new TempDirectory();
         var prefix = temp.Combine("targets.yaml");
 
-        var ex = await Assert.ThrowsAsync<IOException>(() => TargetsFile.SaveAsync(new TargetsDocument(), prefix + "\0suffix"));
+        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.SaveAsync(new TargetsDocument(), prefix + "\0suffix"));
 
         Assert.Contains("embedded NUL", ex.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(prefix));

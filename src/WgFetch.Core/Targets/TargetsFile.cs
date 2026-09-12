@@ -307,10 +307,21 @@ public static class TargetsFile
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        SafeUserFile.ThrowIfPathContainsNul(path);
 
         string text = Render(document);
-        SafeUserFile.GetUtf8ByteCountWithinLimit(text, MaxFileBytes, "targets.yaml");
+        try
+        {
+            SafeUserFile.ThrowIfPathContainsNul(path);
+            SafeUserFile.GetUtf8ByteCountWithinLimit(text, MaxFileBytes, "targets.yaml");
+        }
+        catch (IOException ex)
+        {
+            // These guards reject the write before anything touches disk. Translating them into the
+            // same TargetsFileException the load path uses keeps every command (add/remove/fetch/
+            // import) on the existing clean stderr + usage-error handling instead of letting a raw
+            // IOException escape CommandRunner.RunAsync and crash the process.
+            throw new TargetsFileException(ex.Message, ex) { FilePath = path };
+        }
 
         string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(directory))

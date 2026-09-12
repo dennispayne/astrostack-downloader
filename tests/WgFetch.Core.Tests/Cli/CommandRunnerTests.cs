@@ -7,6 +7,7 @@ using WgFetch.Core.Prereqs;
 using WgFetch.Core.Progress;
 using WgFetch.Core.Targets;
 using WgFetch.Core.Tests.Support;
+using YamlDotNet.RepresentationModel;
 
 namespace WgFetch.Core.Tests.Cli;
 
@@ -768,6 +769,32 @@ public sealed class CommandRunnerTests
         Assert.Contains("nina", statusOut.ToString(), StringComparison.Ordinal);
         Assert.Contains("listed", statusOut.ToString(), StringComparison.Ordinal);
         Assert.Contains("nina", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Add_OversizedTargetsFile_ReturnsUsageErrorInsteadOfCrashing()
+    {
+        using var temp = new TempDirectory();
+        var path = SourceLayout.TargetsPath(temp.Path);
+
+        // Bypasses TargetsFile.SaveAsync's own size guard so the setup file, just under the limit,
+        // still loads cleanly; adding a new entry then pushes the re-rendered file over MaxFileBytes.
+        var seed = new TargetsDocument
+        {
+            ExtraFields = new Dictionary<string, YamlNode>(StringComparer.Ordinal)
+            {
+                ["huge"] = new YamlScalarNode(new string('x', (8 * 1024 * 1024) - 16)),
+            },
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, TargetsFile.Render(seed), CancellationToken.None);
+
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(Acq(temp, "add", "nina"), CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("larger than", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
