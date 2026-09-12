@@ -101,7 +101,7 @@ public static class TargetsFile
         }
         catch (TargetsFileValidationException ex)
         {
-            throw new TargetsFileException(path, ex.ValidationCause, ex.ReasonCode);
+            throw new TargetsFileException(path, ex, ex.ReasonCode);
         }
     }
 
@@ -282,8 +282,6 @@ public static class TargetsFile
         : FormatException("Invalid targets document.", innerException)
     {
         public string ReasonCode { get; } = reasonCode;
-
-        public Exception ValidationCause { get; } = innerException;
     }
 
     /// <summary>
