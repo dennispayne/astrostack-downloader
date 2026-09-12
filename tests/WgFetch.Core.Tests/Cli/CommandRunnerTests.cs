@@ -270,14 +270,16 @@ public sealed class CommandRunnerTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task MalformedTargetsYaml_IsCleanUsageError(bool json)
+    [InlineData(false, "targets: [this is: not valid: yaml:::")]
+    [InlineData(true, "targets: [this is: not valid: yaml:::")]
+    [InlineData(false, "version: nope")]
+    [InlineData(true, "version: nope")]
+    public async Task MalformedTargetsYaml_IsCleanUsageError(bool json, string yaml)
     {
         using var temp = new TempDirectory();
         await File.WriteAllTextAsync(
             SourceLayout.TargetsPath(temp.Path),
-            "targets: [this is: not valid: yaml:::");
+            yaml);
 
         var (runner, stdout, stderr) = CreateRunner();
         var arguments = Repo(temp, "status");
@@ -304,6 +306,22 @@ public sealed class CommandRunnerTests
         {
             Assert.Single(stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries));
         }
+    }
+
+    [Fact]
+    public async Task Add_FromFileWithMalformedTargetsYaml_ReportsSourcePath()
+    {
+        using var temp = new TempDirectory();
+        string inputPath = temp.Combine("invalid-targets.yaml");
+        await File.WriteAllTextAsync(inputPath, "version: nope");
+
+        var (runner, _, stderr) = CreateRunner();
+        var exit = await runner.RunAsync(
+            Acq(temp, "add", "--from-file", inputPath),
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains($"'{inputPath}'", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

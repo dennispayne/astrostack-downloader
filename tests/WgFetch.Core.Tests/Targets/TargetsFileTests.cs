@@ -229,6 +229,30 @@ public class TargetsFileTests
         Assert.IsAssignableFrom<YamlException>(exception.InnerException);
     }
 
+    [Theory]
+    [InlineData("version: nope")]
+    [InlineData("targets:\n  - name: nina\n    state: typo")]
+    [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp")]
+    public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, $"invalid-{Guid.NewGuid():N}.yaml");
+        await File.WriteAllTextAsync(path, yaml);
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+            Assert.Equal(path, exception.Path);
+            Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("invalid targets document", exception.Message, StringComparison.Ordinal);
+            Assert.IsType<FormatException>(exception.InnerException);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task SaveAsync_ThenLoadAsync_RoundTrips_AndLeavesNoTempFile()
     {

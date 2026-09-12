@@ -56,41 +56,52 @@ public static class TargetsFile
             throw new TargetsFileException(path, ex);
         }
 
-        var doc = new TargetsDocument { Targets = new List<TargetEntry>() };
-
-        if (stream.Documents.Count == 0 || stream.Documents[0].RootNode is not YamlMappingNode root)
+        try
         {
-            return doc;
-        }
+            var doc = new TargetsDocument { Targets = new List<TargetEntry>() };
 
-        var extras = new Dictionary<string, YamlNode>(StringComparer.Ordinal);
-
-        foreach (KeyValuePair<YamlNode, YamlNode> child in root.Children)
-        {
-            string key = ((YamlScalarNode)child.Key).Value ?? string.Empty;
-
-            if (key == VersionKey && child.Value is YamlScalarNode versionScalar)
+            if (stream.Documents.Count == 0 || stream.Documents[0].RootNode is not YamlMappingNode root)
             {
-                doc.Version = int.Parse(versionScalar.Value ?? "1", CultureInfo.InvariantCulture);
+                return doc;
             }
-            else if (key == TargetsKey && child.Value is YamlSequenceNode targetsSequence)
+
+            var extras = new Dictionary<string, YamlNode>(StringComparer.Ordinal);
+
+            foreach (KeyValuePair<YamlNode, YamlNode> child in root.Children)
             {
-                foreach (YamlNode item in targetsSequence.Children)
+                string key = ((YamlScalarNode)child.Key).Value ?? string.Empty;
+
+                if (key == VersionKey && child.Value is YamlScalarNode versionScalar)
                 {
-                    if (item is YamlMappingNode entryMapping)
+                    doc.Version = int.Parse(versionScalar.Value ?? "1", CultureInfo.InvariantCulture);
+                }
+                else if (key == TargetsKey && child.Value is YamlSequenceNode targetsSequence)
+                {
+                    foreach (YamlNode item in targetsSequence.Children)
                     {
-                        doc.Targets.Add(ParseEntry(entryMapping));
+                        if (item is YamlMappingNode entryMapping)
+                        {
+                            doc.Targets.Add(ParseEntry(entryMapping));
+                        }
                     }
                 }
+                else
+                {
+                    extras[key] = child.Value;
+                }
             }
-            else
-            {
-                extras[key] = child.Value;
-            }
-        }
 
-        doc.ExtraFields = extras;
-        return doc;
+            doc.ExtraFields = extras;
+            return doc;
+        }
+        catch (FormatException ex)
+        {
+            throw new TargetsFileException(path, ex);
+        }
+        catch (InvalidCastException ex)
+        {
+            throw new TargetsFileException(path, ex);
+        }
     }
 
     private static TargetEntry ParseEntry(YamlMappingNode mapping)
