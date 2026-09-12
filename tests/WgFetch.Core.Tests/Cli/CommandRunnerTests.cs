@@ -341,22 +341,15 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
-    public async Task Config_SetGetListAndUnset_PersistAndRedactSecrets()
+    public async Task Config_SetGetListAndUnset_Persist()
     {
         using var temp = new TempDirectory();
         var configPath = temp.Combine("config.json");
-        var secret = "config-secret-value";
-
         var (setter, setOut, _) = CreateRunner();
         Assert.Equal(ExitCode.Success, await setter.RunAsync(
             ["config", "set", "output-directory", temp.Combine("source"), "--config", configPath],
             CancellationToken.None));
         Assert.Contains("saved", setOut.ToString(), StringComparison.Ordinal);
-
-        var (secretSetter, _, _) = CreateRunner();
-        Assert.Equal(ExitCode.Success, await secretSetter.RunAsync(
-            ["config", "set", "aiKey", secret, "--config", configPath],
-            CancellationToken.None));
 
         var (getter, getOut, _) = CreateRunner();
         Assert.Equal(ExitCode.Success, await getter.RunAsync(
@@ -364,23 +357,76 @@ public sealed class CommandRunnerTests
             CancellationToken.None));
         Assert.Contains(temp.Combine("source"), getOut.ToString(), StringComparison.Ordinal);
 
-        var (secretGetter, secretGetOut, _) = CreateRunner();
-        Assert.Equal(ExitCode.Success, await secretGetter.RunAsync(
-            ["config", "get", "aiKey", "--config", configPath],
-            CancellationToken.None));
-        Assert.Contains("[REDACTED]", secretGetOut.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(secret, secretGetOut.ToString(), StringComparison.Ordinal);
-
         var (lister, listOut, _) = CreateRunner();
         Assert.Equal(ExitCode.Success, await lister.RunAsync(["config", "list", "--config", configPath], CancellationToken.None));
-        Assert.Contains("[REDACTED]", listOut.ToString(), StringComparison.Ordinal);
-        Assert.DoesNotContain(secret, listOut.ToString(), StringComparison.Ordinal);
+        Assert.Contains("outputDirectory", listOut.ToString(), StringComparison.Ordinal);
 
         var (unsetter, _, _) = CreateRunner();
         Assert.Equal(ExitCode.Success, await unsetter.RunAsync(
             ["config", "unset", "outputDirectory", "--config", configPath],
             CancellationToken.None));
         Assert.Null((await ConfigFile.LoadAsync(configPath, CancellationToken.None)).OutputDirectory);
+    }
+
+    [Fact]
+    public async Task Config_commands_repair_invalid_persisted_paths_without_resolving_run_settings()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(configPath, """{"outputDirectory":"\u0000"}""", CancellationToken.None);
+
+        var (runner, _, _) = CreateRunner();
+        var exit = await runner.RunAsync(["config", "unset", "outputDirectory", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Null((await ConfigFile.LoadAsync(configPath, CancellationToken.None)).OutputDirectory);
+    }
+
+    [Fact]
+    public async Task Config_json_emits_redacted_machine_events()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(new WgFetchConfig { OutputDirectory = temp.Combine("source") }, configPath, CancellationToken.None);
+        var (runner, stdout, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(["config", "get", "outputDirectory", "--config", configPath, "--json"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        using var document = JsonDocument.Parse(Assert.Single(stdout.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)));
+        Assert.Equal("config", document.RootElement.GetProperty("event").GetString());
+        Assert.Equal("outputDirectory", document.RootElement.GetProperty("target").GetString());
+        Assert.Contains(temp.Combine("source"), document.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+        Assert.Contains(temp.Combine("source"), stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Config_interactive_rejects_plain_terminal_mode()
+    {
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(["config", "--interactive"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.Ambiguous, exit);
+        Assert.Contains("requires an attached terminal", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("aiKey", "secret")]
+    [InlineData("searchProvider", "typo")]
+    [InlineData("modelsRoot", "")]
+    public async Task Config_rejects_invalid_or_nonpersistable_values(string name, string value)
+    {
+        using var temp = new TempDirectory();
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(
+            ["config", "set", name, value, "--config", temp.Combine("config.json")],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.False(File.Exists(temp.Combine("config.json")));
+        Assert.NotEmpty(stderr.ToString());
     }
 
     [Fact]

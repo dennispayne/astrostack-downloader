@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 using WgFetch.Core.Abstractions;
 using WgFetch.Core.Catalog;
 using WgFetch.Core.Configuration;
@@ -31,6 +32,9 @@ public sealed record RunnerDependencies
 
     /// <summary>Overrides the process environment so terminal detection is testable.</summary>
     public IReadOnlyDictionary<string, string?>? Environment { get; init; }
+
+    /// <summary>Overrides interactive terminal I/O so embedded callers can supply their own console.</summary>
+    public IAnsiConsole? InteractiveConsole { get; init; }
 }
 
 /// <summary>
@@ -125,6 +129,21 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> ExecuteAsync(ParsedCommandLine parsed, CancellationToken cancellationToken)
     {
         var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        if (parsed.Command == "config")
+        {
+            if (parsed.Has("--json"))
+            {
+                _events = new JsonEventWriter(_stdout, config.Secrets, deterministicOrder: true);
+                _humanToStderr = true;
+            }
+
+            var configTerminal = TerminalCapability.Detect(BuildTerminalEnvironment(
+                parsed.Has("--plain"),
+                parsed.Has("--no-color"),
+                parsed.Has("--json")));
+            return await ConfigAsync(parsed, config, configTerminal, cancellationToken).ConfigureAwait(false);
+        }
+
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
 
         var terminal = TerminalCapability.Detect(BuildTerminalEnvironment(settings));
@@ -153,7 +172,6 @@ public sealed partial class CommandRunner
             "import" => await ImportAsync(parsed, settings, cancellationToken).ConfigureAwait(false),
             "refresh" => await RefreshAsync(settings, cancellationToken).ConfigureAwait(false),
             "prereqs" => await PrereqsAsync(parsed, settings, cancellationToken).ConfigureAwait(false),
-            "config" => await ConfigAsync(parsed, config, cancellationToken).ConfigureAwait(false),
             "verify" => await VerifyAsync(settings, cancellationToken).ConfigureAwait(false),
             "recipes" => await RecipesAsync(parsed, settings, cancellationToken).ConfigureAwait(false),
             "diagnostics" => await DiagnosticsAsync(parsed, settings, config, cancellationToken).ConfigureAwait(false),
@@ -168,11 +186,14 @@ public sealed partial class CommandRunner
         return exitCode;
     }
 
-    private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings)
+    private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings) =>
+        BuildTerminalEnvironment(settings.Plain, settings.NoColor, settings.Json);
+
+    private TerminalEnvironment BuildTerminalEnvironment(bool plain, bool noColor, bool json)
     {
         if (_dependencies.Environment is null)
         {
-            return TerminalEnvironment.FromProcess(settings.Plain, settings.NoColor, settings.Json);
+            return TerminalEnvironment.FromProcess(plain, noColor, json);
         }
 
         return new TerminalEnvironment
@@ -182,9 +203,9 @@ public sealed partial class CommandRunner
             Term = Lookup("TERM"),
             NoColorSet = !string.IsNullOrEmpty(Lookup("NO_COLOR")),
             CiSet = !string.IsNullOrEmpty(Lookup("CI")),
-            PlainRequested = settings.Plain,
-            NoColorRequested = settings.NoColor,
-            JsonRequested = settings.Json,
+            PlainRequested = plain,
+            NoColorRequested = noColor,
+            JsonRequested = json,
         };
 
         string? Lookup(string name) =>

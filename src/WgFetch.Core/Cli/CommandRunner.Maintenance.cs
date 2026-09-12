@@ -7,6 +7,7 @@ using WgFetch.Core.Logging;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
 using WgFetch.Core.Prereqs;
+using WgFetch.Core.Progress;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
 
@@ -23,11 +24,12 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> ConfigAsync(
         ParsedCommandLine parsed,
         WgFetchConfig config,
+        TerminalMode terminal,
         CancellationToken cancellationToken)
     {
         if (parsed.SubCommand is null || parsed.Has("--interactive"))
         {
-            return await InteractiveConfigAsync(config, parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+            return await InteractiveConfigAsync(config, parsed.Value("--config"), terminal, cancellationToken).ConfigureAwait(false);
         }
 
         var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;
@@ -41,8 +43,13 @@ public sealed partial class CommandRunner
                 }
 
                 var rows = new List<string[]> { ConfigTableHeader };
-                rows.AddRange(ConfigSettings.GetRedactedValues(config).Select(setting => new[] { setting.Name, setting.Value ?? "-" }));
+                var settings = ConfigSettings.GetRedactedValues(config);
+                rows.AddRange(settings.Select(setting => new[] { setting.Name, setting.Value ?? "-" }));
                 Report(RenderTable(rows));
+                foreach (var setting in settings)
+                {
+                    Emit(new JsonEvent { Event = "config", Target = setting.Name, Status = "value", Message = setting.Value ?? "-" });
+                }
                 return ExitCode.Success;
 
             case "get":
@@ -60,6 +67,7 @@ public sealed partial class CommandRunner
                 }
 
                 Report(value ?? "-");
+                Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "value", Message = value ?? "-" });
                 return ExitCode.Success;
 
             case "set":
@@ -77,6 +85,7 @@ public sealed partial class CommandRunner
 
                 await ConfigFile.SaveAsync(updated, path, cancellationToken).ConfigureAwait(false);
                 Report($"{parsed.Positional[0]}: saved");
+                Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "saved" });
                 return ExitCode.Success;
 
             case "unset":
@@ -94,6 +103,7 @@ public sealed partial class CommandRunner
 
                 await ConfigFile.SaveAsync(without, path, cancellationToken).ConfigureAwait(false);
                 Report($"{parsed.Positional[0]}: unset");
+                Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "unset" });
                 return ExitCode.Success;
 
             default:

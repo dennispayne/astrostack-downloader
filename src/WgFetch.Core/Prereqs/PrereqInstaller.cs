@@ -66,11 +66,13 @@ public sealed class PrereqInstaller
 {
     private readonly IHttpGateway _http;
     private readonly ILogger _logger;
+    private readonly IReadOnlyList<PinnedModel> _models;
 
-    public PrereqInstaller(IHttpGateway http, ILogger? logger = null)
+    public PrereqInstaller(IHttpGateway http, ILogger? logger = null, IReadOnlyList<PinnedModel>? models = null)
     {
         _http = http;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        _models = models ?? PinnedModels.All;
     }
 
     public static string ModelDirectory(string modelsRoot, PinnedModel model) =>
@@ -79,10 +81,11 @@ public sealed class PrereqInstaller
     /// <summary>Reports presence, paths, sizes and verification state for every pinned model.</summary>
     public static async Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
         string modelsRoot,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<PinnedModel>? models = null)
     {
         var result = new List<PrereqModelStatus>();
-        foreach (var model in PinnedModels.All)
+        foreach (var model in models ?? PinnedModels.All)
         {
             var directory = ModelDirectory(modelsRoot, model);
             var assets = new List<PrereqAssetStatus>();
@@ -125,7 +128,7 @@ public sealed class PrereqInstaller
         bool dryRun,
         CancellationToken cancellationToken)
     {
-        IReadOnlySet<string> selectedModels = PinnedModels.All
+        IReadOnlySet<string> selectedModels = _models
             .Where(model => includeLanguageModel || !model.IsLanguageModel)
             .Select(model => model.Id).ToHashSet(StringComparer.Ordinal);
         var result = await InstallAsync(modelsRoot, selectedModels, dryRun, cancellationToken).ConfigureAwait(false);
@@ -145,7 +148,7 @@ public sealed class PrereqInstaller
         var success = true;
         var installed = new List<PrereqInstalledModel>();
 
-        foreach (var model in PinnedModels.All)
+        foreach (var model in _models)
         {
             if (!selectedModels.Contains(model.Id))
             {
@@ -226,7 +229,7 @@ public sealed class PrereqInstaller
                 cancellationToken).ConfigureAwait(false);
         }
 
-        var status = await StatusAsync(modelsRoot, cancellationToken).ConfigureAwait(false);
+        var status = await StatusAsync(modelsRoot, cancellationToken, _models).ConfigureAwait(false);
         return new PrereqInstallResult(success, messages, status);
     }
 

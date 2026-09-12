@@ -77,6 +77,25 @@ public sealed class ConfigFileTests
         Assert.Equal("machine", (await ConfigFile.LoadAsync(path, CancellationToken.None)).Scope);
         Assert.False(File.Exists(path + ".tmp"));
     }
+
+    [Fact]
+    public async Task Saving_never_persists_credentials()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { AiKey = "ai-secret", SearchKey = "search-secret", GithubToken = "github-secret" },
+            path,
+            CancellationToken.None);
+
+        var json = await File.ReadAllTextAsync(path, CancellationToken.None);
+        Assert.DoesNotContain("secret", json, StringComparison.Ordinal);
+        var loaded = await ConfigFile.LoadAsync(path, CancellationToken.None);
+        Assert.Null(loaded.AiKey);
+        Assert.Null(loaded.SearchKey);
+        Assert.Null(loaded.GithubToken);
+    }
 }
 
 public sealed class ConfigRedactionTests
@@ -133,6 +152,25 @@ public sealed class ConfigRedactionTests
             Assert.True(ConfigSettings.TrySet(scope, "architecture", "X64", out var architecture, out _));
             Assert.Equal("machine", architecture.Scope);
             Assert.Equal("x64", architecture.Architecture);
+        }
+
+        [Fact]
+        public void Rejects_unknown_search_provider_and_blank_directory()
+        {
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "searchProvider", "typo", out _, out var providerError));
+            Assert.Contains("searchProvider must be one of", providerError, StringComparison.Ordinal);
+
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "modelsRoot", "", out _, out var directoryError));
+            Assert.Equal("directory path must not be blank.", directoryError);
+        }
+
+        [Theory]
+        [InlineData("aiKey")]
+        [InlineData("searchKey")]
+        [InlineData("githubToken")]
+        public void Rejects_credential_settings(string name)
+        {
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), name, "secret", out _, out _));
         }
     }
 

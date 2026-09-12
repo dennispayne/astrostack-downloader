@@ -1,4 +1,5 @@
 using System.Globalization;
+using WgFetch.Core.Search;
 namespace WgFetch.Core.Configuration;
 
 /// <summary>Maps the persisted configuration schema to its command-line setting names.</summary>
@@ -6,16 +7,13 @@ public static class ConfigSettings
 {
     private static readonly HashSet<string> SecretNames = new(StringComparer.Ordinal)
     {
-        "aikey",
-        "searchkey",
-        "githubtoken",
     };
 
     public static IReadOnlyList<string> Names { get; } =
     [
         "outputDirectory", "cacheDirectory", "modelsRoot", "threshold", "architecture", "scope",
-        "keepVersions", "aiMode", "aiEndpoint", "aiModel", "aiKey", "searchProvider",
-        "searchEndpoint", "searchKey", "githubToken", "logLevel", "parallelDownloads", "maxPerHost", "plain",
+        "keepVersions", "aiMode", "aiEndpoint", "aiModel", "searchProvider",
+        "searchEndpoint", "logLevel", "parallelDownloads", "maxPerHost", "plain",
     ];
 
     public static bool IsSecret(string name) => SecretNames.Contains(Normalize(name));
@@ -43,21 +41,23 @@ public static class ConfigSettings
             updated = config; error = "aiMode must be local, remote, or auto."; return false;
         }
 
+        if (normalized == "searchprovider" && !SearchProviderFactory.KnownNames.Contains(value, StringComparer.OrdinalIgnoreCase))
+        {
+            updated = config; error = $"searchProvider must be one of: {string.Join(", ", SearchProviderFactory.KnownNames)}."; return false;
+        }
+
         return normalized switch
         {
-            "outputdirectory" => SetString(config, value, static (c, v) => c with { OutputDirectory = v }, out updated, out error),
-            "cachedirectory" => SetString(config, value, static (c, v) => c with { CacheDirectory = v }, out updated, out error),
-            "modelsroot" => SetString(config, value, static (c, v) => c with { ModelsRoot = v }, out updated, out error),
+            "outputdirectory" => SetDirectory(config, value, static (c, v) => c with { OutputDirectory = v }, out updated, out error),
+            "cachedirectory" => SetDirectory(config, value, static (c, v) => c with { CacheDirectory = v }, out updated, out error),
+            "modelsroot" => SetDirectory(config, value, static (c, v) => c with { ModelsRoot = v }, out updated, out error),
             "architecture" => SetString(config, value, static (c, v) => c with { Architecture = v }, out updated, out error),
             "scope" => SetString(config, value, static (c, v) => c with { Scope = v }, out updated, out error),
             "aimode" => SetString(config, value, static (c, v) => c with { AiMode = v }, out updated, out error),
             "aiendpoint" => SetString(config, value, static (c, v) => c with { AiEndpoint = v }, out updated, out error),
             "aimodel" => SetString(config, value, static (c, v) => c with { AiModel = v }, out updated, out error),
-            "aikey" => SetString(config, value, static (c, v) => c with { AiKey = v }, out updated, out error),
             "searchprovider" => SetString(config, value, static (c, v) => c with { SearchProvider = v }, out updated, out error),
             "searchendpoint" => SetString(config, value, static (c, v) => c with { SearchEndpoint = v }, out updated, out error),
-            "searchkey" => SetString(config, value, static (c, v) => c with { SearchKey = v }, out updated, out error),
-            "githubtoken" => SetString(config, value, static (c, v) => c with { GithubToken = v }, out updated, out error),
             "loglevel" => SetString(config, value, static (c, v) => c with { LogLevel = v }, out updated, out error),
             "threshold" => SetDouble(config, value, out updated, out error),
             "keepversions" => SetInt(config, value, "keepVersions", 1, int.MaxValue, static (c, v) => c with { KeepVersions = v }, out updated, out error),
@@ -82,11 +82,8 @@ public static class ConfigSettings
             case "aimode": updated = config with { AiMode = null }; break;
             case "aiendpoint": updated = config with { AiEndpoint = null }; break;
             case "aimodel": updated = config with { AiModel = null }; break;
-            case "aikey": updated = config with { AiKey = null }; break;
             case "searchprovider": updated = config with { SearchProvider = null }; break;
             case "searchendpoint": updated = config with { SearchEndpoint = null }; break;
-            case "searchkey": updated = config with { SearchKey = null }; break;
-            case "githubtoken": updated = config with { GithubToken = null }; break;
             case "loglevel": updated = config with { LogLevel = null }; break;
             case "paralleldownloads": updated = config with { ParallelDownloads = null }; break;
             case "maxperhost": updated = config with { MaxPerHost = null }; break;
@@ -119,9 +116,8 @@ public static class ConfigSettings
             "modelsroot" => redacted.ModelsRoot, "threshold" => Format(redacted.Threshold),
             "architecture" => redacted.Architecture, "scope" => redacted.Scope,
             "keepversions" => Format(redacted.KeepVersions), "aimode" => redacted.AiMode,
-            "aiendpoint" => redacted.AiEndpoint, "aimodel" => redacted.AiModel, "aikey" => redacted.AiKey,
+            "aiendpoint" => redacted.AiEndpoint, "aimodel" => redacted.AiModel,
             "searchprovider" => redacted.SearchProvider, "searchendpoint" => redacted.SearchEndpoint,
-            "searchkey" => redacted.SearchKey, "githubtoken" => redacted.GithubToken,
             "loglevel" => redacted.LogLevel, "paralleldownloads" => Format(redacted.ParallelDownloads),
             "maxperhost" => Format(redacted.MaxPerHost), "plain" => Format(redacted.Plain),
             _ => UnknownValue(name, out error),
@@ -133,6 +129,24 @@ public static class ConfigSettings
         updated = setter(config, value);
         error = null;
         return true;
+    }
+
+    private static bool SetDirectory(WgFetchConfig config, string value, Func<WgFetchConfig, string, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            updated = config; error = "directory path must not be blank."; return false;
+        }
+
+        try
+        {
+            _ = Path.GetFullPath(value);
+            return SetString(config, value, setter, out updated, out error);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+        {
+            updated = config; error = "directory path is invalid."; return false;
+        }
     }
 
     private static bool SetDouble(WgFetchConfig config, string value, out WgFetchConfig updated, out string? error)

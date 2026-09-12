@@ -39,7 +39,7 @@ public sealed record WgFetchConfig
     [JsonPropertyName("aiModel")]
     public string? AiModel { get; init; }
 
-    [JsonPropertyName("aiKey")]
+    [JsonIgnore]
     public string? AiKey { get; init; }
 
     [JsonPropertyName("searchProvider")]
@@ -48,10 +48,10 @@ public sealed record WgFetchConfig
     [JsonPropertyName("searchEndpoint")]
     public string? SearchEndpoint { get; init; }
 
-    [JsonPropertyName("searchKey")]
+    [JsonIgnore]
     public string? SearchKey { get; init; }
 
-    [JsonPropertyName("githubToken")]
+    [JsonIgnore]
     public string? GithubToken { get; init; }
 
     [JsonPropertyName("logLevel")]

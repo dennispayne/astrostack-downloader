@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using WgFetch.Core.Prereqs;
 using WgFetch.Core.Tests.Support;
 using Xunit;
@@ -188,4 +189,34 @@ public sealed class PinnedModelsTests
         Assert.True(result.Success);
         Assert.Empty(result.Messages);
     }
+
+    [Fact]
+    public async Task Selective_install_downloads_and_records_only_the_selected_model()
+    {
+        using var temp = new TempDirectory();
+        var selectedBytes = "selected model"u8.ToArray();
+        var otherBytes = "other model"u8.ToArray();
+        var selected = TestModel("selected", "https://models.example/selected.bin", selectedBytes);
+        var unselected = TestModel("unselected", "https://models.example/unselected.bin", otherBytes);
+        var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(selectedBytes));
+        var installer = new PrereqInstaller(http, models: [selected, unselected]);
+
+        var result = await installer.InstallAsync(
+            temp.Path,
+            new HashSet<string>([selected.Id], StringComparer.Ordinal),
+            dryRun: false,
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal([selected.Assets[0].Url], http.Requests.Select(request => request.Url.ToString()));
+        Assert.True(File.Exists(Path.Combine(temp.Path, selected.Id, selected.Assets[0].RelativePath)));
+        Assert.False(Directory.Exists(Path.Combine(temp.Path, unselected.Id)));
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.Contains("\"id\": \"selected\"", manifest, StringComparison.Ordinal);
+        Assert.DoesNotContain("unselected", manifest, StringComparison.Ordinal);
+    }
+
+    private static PinnedModel TestModel(string id, string url, byte[] bytes) =>
+        new(id, id, "test/repository", "revision", IsLanguageModel: false,
+        [new ModelAsset("model.bin", url, bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);
 }

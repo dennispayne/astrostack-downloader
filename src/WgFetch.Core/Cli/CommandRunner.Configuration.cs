@@ -1,6 +1,7 @@
 using Spectre.Console;
 using WgFetch.Core.Configuration;
 using WgFetch.Core.Prereqs;
+using WgFetch.Core.Progress;
 
 namespace WgFetch.Core.Cli;
 
@@ -15,21 +16,23 @@ public sealed partial class CommandRunner
     private async Task<ExitCode> InteractiveConfigAsync(
         WgFetchConfig config,
         string? configuredPath,
+        TerminalMode terminal,
         CancellationToken cancellationToken)
     {
-        if (Console.IsInputRedirected || Console.IsOutputRedirected || _humanToStderr)
+        if (terminal != TerminalMode.Interactive)
         {
             _stderr.WriteLine("wgfetch config: interactive mode requires an attached terminal.");
             return ExitCode.Ambiguous;
         }
 
         var path = configuredPath ?? ConfigFile.DefaultPath;
+        var console = _dependencies.InteractiveConsole ?? AnsiConsole.Console;
         var current = config;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            RenderConfig(current);
-            var choice = AnsiConsole.Prompt(
+            RenderConfig(console, current);
+            var choice = console.Prompt(
                 new SelectionPrompt<string>()
                     .Title("Select a setting to edit, or manage model prerequisites")
                     .AddChoices([.. ConfigSettings.Names, ModelPrerequisitesChoice, ExitChoice]));
@@ -40,7 +43,7 @@ public sealed partial class CommandRunner
 
             if (choice == ModelPrerequisitesChoice)
             {
-                var prereqExit = await ManagePrerequisitesAsync(current, path, cancellationToken).ConfigureAwait(false);
+                var prereqExit = await ManagePrerequisitesAsync(console, current, path, cancellationToken).ConfigureAwait(false);
                 if (prereqExit != ExitCode.Success)
                 {
                     return prereqExit;
@@ -56,7 +59,7 @@ public sealed partial class CommandRunner
                 prompt.Secret();
             }
 
-            var value = AnsiConsole.Prompt(prompt);
+            var value = console.Prompt(prompt);
             if (string.IsNullOrEmpty(value))
             {
                 continue;
@@ -70,24 +73,24 @@ public sealed partial class CommandRunner
                 }
                 catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
                 {
-                    AnsiConsole.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(value)}");
+                    console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(value)}");
                     continue;
                 }
             }
 
             if (!ConfigSettings.TrySet(current, choice, value, out var updated, out var error))
             {
-                AnsiConsole.MarkupLine($"[red]{Markup.Escape(error!)}[/]");
+                console.MarkupLine($"[red]{Markup.Escape(error!)}[/]");
                 continue;
             }
 
             await ConfigFile.SaveAsync(updated, path, cancellationToken).ConfigureAwait(false);
             current = updated;
-            AnsiConsole.MarkupLine("[green]Saved.[/]");
+            console.MarkupLine("[green]Saved.[/]");
         }
     }
 
-    private static void RenderConfig(WgFetchConfig config)
+    private static void RenderConfig(IAnsiConsole console, WgFetchConfig config)
     {
         var table = new Table().Border(TableBorder.Rounded).Title("wgfetch configuration");
         table.AddColumn("Setting");
@@ -97,15 +100,17 @@ public sealed partial class CommandRunner
             table.AddRow(setting.Name, setting.Value is null ? "-" : Markup.Escape(setting.Value));
         }
 
-        AnsiConsole.Write(table);
+        console.Write(table);
     }
 
     private async Task<ExitCode> ManagePrerequisitesAsync(
+        IAnsiConsole console,
         WgFetchConfig config,
         string configPath,
         CancellationToken cancellationToken)
     {
-        var modelsRoot = Path.GetFullPath(config.ModelsRoot ?? WgFetchPaths.ModelsDirectory);
+        var modelsRoot = Path.GetFullPath(
+            string.IsNullOrWhiteSpace(config.ModelsRoot) ? WgFetchPaths.ModelsDirectory : config.ModelsRoot);
         var statuses = await PrereqInstaller.StatusAsync(modelsRoot, cancellationToken).ConfigureAwait(false);
         var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRoot)})");
         table.AddColumn("Model");
@@ -119,14 +124,14 @@ public sealed partial class CommandRunner
             table.AddRow(model.ModelId, status);
         }
 
-        AnsiConsole.Write(table);
+        console.Write(table);
         var installChoices = PinnedModels.All.ToDictionary(
             model => $"Install {model.Id}",
             model => model.Id,
             StringComparer.Ordinal);
         var choices = installChoices.Keys
             .Append(InstallAllModelsChoice).Append(ChangeModelsRootChoice).Append(BackChoice).ToArray();
-        var choice = AnsiConsole.Prompt(new SelectionPrompt<string>().Title("Model action").AddChoices(choices));
+        var choice = console.Prompt(new SelectionPrompt<string>().Title("Model action").AddChoices(choices));
         if (choice == BackChoice)
         {
             return ExitCode.Success;
@@ -134,7 +139,7 @@ public sealed partial class CommandRunner
 
         if (choice == ChangeModelsRootChoice)
         {
-            var root = AnsiConsole.Prompt(new TextPrompt<string>("Models root"));
+            var root = console.Prompt(new TextPrompt<string>("Models root"));
             if (string.IsNullOrWhiteSpace(root))
             {
                 return ExitCode.Success;
@@ -146,13 +151,13 @@ public sealed partial class CommandRunner
             }
             catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException)
             {
-                AnsiConsole.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(root)}");
+                console.MarkupLine($"[red]Cannot create directory:[/] {Markup.Escape(root)}");
                 return ExitCode.Success;
             }
 
             if (!ConfigSettings.TrySet(config, "modelsRoot", root, out var updated, out var error))
             {
-                AnsiConsole.MarkupLine($"[red]{Markup.Escape(error!)}[/]");
+                console.MarkupLine($"[red]{Markup.Escape(error!)}[/]");
                 return ExitCode.UsageError;
             }
 
@@ -164,7 +169,7 @@ public sealed partial class CommandRunner
             ? PinnedModels.All.Select(model => model.Id).ToHashSet(StringComparer.Ordinal)
             : new HashSet<string>([installChoices[choice]], StringComparer.Ordinal);
         PrereqInstallResult? result = null;
-        await AnsiConsole.Status()
+        await console.Status()
             .StartAsync("Installing pinned model files...", async _ =>
             {
                 result = await new PrereqInstaller(CreateHttpGateway(), _logger)
@@ -175,7 +180,7 @@ public sealed partial class CommandRunner
 
         foreach (var message in result!.Messages)
         {
-            AnsiConsole.WriteLine(message);
+            console.WriteLine(message);
         }
 
         return result.ExitCode;
