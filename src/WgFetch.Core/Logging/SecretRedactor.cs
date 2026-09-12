@@ -26,11 +26,12 @@ public static partial class SecretRedactor
         ["credential", "signature", "token", "hmac"];
 
     private static readonly string[] SensitiveHeaderFragments =
-        ["api-key", "apikey", "auth", "credential", "password", "token", "secret"];
+        ["api-key", "apikey", "credential", "password", "token", "secret"];
 
     private static readonly HashSet<string> SensitiveHeaderNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Authorization", "Proxy-Authorization", "Cookie", "Cookie2", "Ocp-Apim-Subscription-Key",
+        "Authorization", "Proxy-Authorization", "X-Auth", "X-Authorization", "Cookie", "Cookie2",
+        "Ocp-Apim-Subscription-Key",
     };
 
     [GeneratedRegex(@"gh[pousr]_[A-Za-z0-9]{16,}", RegexOptions.CultureInvariant)]

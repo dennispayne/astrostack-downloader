@@ -92,6 +92,10 @@ public sealed class SecretRedactorTests
         Assert.True(SecretRedactor.IsSensitiveHeaderName(name));
 
     [Fact]
+    public void Does_not_treat_unrelated_headers_as_sensitive() =>
+        Assert.False(SecretRedactor.IsSensitiveHeaderName("X-Author"));
+
+    [Fact]
     public void Handles_null_and_empty_input()
     {
         Assert.Equal(string.Empty, SecretRedactor.Redact(null));
