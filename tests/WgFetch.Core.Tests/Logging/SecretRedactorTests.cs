@@ -131,6 +131,8 @@ public sealed class SecretRedactorTests
     [InlineData("API-Key")]
     [InlineData("api_key")]
     [InlineData("x-api-key")]
+    [InlineData("X_API_KEY")]
+    [InlineData("Access-Token")]
     public void RedactUrl_redacts_an_api_key_query_parameter_without_a_registered_secret(string parameterName)
     {
         var redacted = SecretRedactor.RedactUrl($"https://host.example/?{parameterName}=arbitrary-secret");
@@ -159,6 +161,7 @@ public sealed class SecretRedactorTests
 
         Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
         Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+        Assert.Contains("#?access_token=", redacted, StringComparison.Ordinal);
     }
 
     [Fact]

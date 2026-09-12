@@ -11,10 +11,12 @@ public static partial class SecretRedactor
 {
     public const string Placeholder = "[REDACTED]";
 
-    private static readonly HashSet<string> SensitiveQueryKeys = new(StringComparer.OrdinalIgnoreCase)
+    // Stored in normalized form (lower-case, separators removed) so every spelling of a key —
+    // "api-key", "api_key", "X-Api-Key" — matches a single entry (see NormalizeParameterName).
+    private static readonly HashSet<string> SensitiveQueryKeys = new(StringComparer.Ordinal)
     {
-        "key", "apikey", "api_key", "api-key", "token", "access_token", "auth", "authorization", "signature",
-        "sig", "password", "secret", "client_secret", "x-api-key", "code",
+        "key", "apikey", "token", "accesstoken", "refreshtoken", "idtoken", "auth", "authorization",
+        "signature", "sig", "password", "secret", "clientsecret", "xapikey", "code",
     };
 
     private static readonly HashSet<string> SensitiveFieldNames = new(StringComparer.OrdinalIgnoreCase)
@@ -111,13 +113,15 @@ public static partial class SecretRedactor
             // OAuth-style responses carry credentials in the fragment (for example
             // "#access_token=..."), which never reaches the query pass, so the same sensitive-key
             // handling is applied here (docs/REQUIREMENTS.md, "Privacy").
-            // Some callbacks render the fragment as "#?token=..."; drop that separator too so the
-            // parameter names are matched rather than treated as part of the first key.
-            var fragmentBody = rawFragment.TrimStart('#').TrimStart('?');
+            // Some callbacks render the fragment as "#?token=..."; drop that separator for matching
+            // and restore it afterwards so redaction never changes the shape of the URL.
+            var afterHash = rawFragment.TrimStart('#');
+            var hasQueryPrefix = afterHash.StartsWith('?');
+            var fragmentBody = hasQueryPrefix ? afterHash[1..] : afterHash;
             var redactedFragment = RedactParameters(fragmentBody, secrets);
             if (!string.Equals(redactedFragment, fragmentBody, StringComparison.Ordinal))
             {
-                builder.Fragment = redactedFragment;
+                builder.Fragment = hasQueryPrefix ? "?" + redactedFragment : redactedFragment;
             }
         }
 
@@ -184,7 +188,7 @@ public static partial class SecretRedactor
             var name = DecodeQueryComponent(rawName);
             var value = DecodeQueryComponent(rawValue);
             var secretInName = ContainsSecret(name, secrets);
-            if (SensitiveQueryKeys.Contains(name) ||
+            if (SensitiveQueryKeys.Contains(NormalizeParameterName(name)) ||
                 secretInName ||
                 ContainsSecret(value, secrets))
             {
@@ -193,6 +197,27 @@ public static partial class SecretRedactor
         }
 
         return string.Join('&', parts);
+    }
+
+    /// <summary>
+    /// Normalizes a parameter name for sensitive-key lookup: lower-cased with the separators that
+    /// vendors interchange freely (<c>-</c>, <c>_</c>, <c>.</c>, whitespace) removed.
+    /// </summary>
+    private static string NormalizeParameterName(string name)
+    {
+        Span<char> buffer = name.Length <= 64 ? stackalloc char[name.Length] : new char[name.Length];
+        var length = 0;
+        foreach (var character in name)
+        {
+            if (character is '-' or '_' or '.' || char.IsWhiteSpace(character))
+            {
+                continue;
+            }
+
+            buffer[length++] = char.ToLowerInvariant(character);
+        }
+
+        return new string(buffer[..length]);
     }
 
     /// <summary>Decodes a query-string component using both percent-encoding and form-encoding (<c>+</c> for space).</summary>
