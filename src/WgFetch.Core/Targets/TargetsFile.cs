@@ -56,7 +56,7 @@ public static class TargetsFile
             using var reader = new StringReader(yamlText);
             stream.Load(reader);
         }
-        catch (YamlException ex)
+        catch (Exception ex) when (ex is YamlException or ArgumentException)
         {
             throw new TargetsFileException(path, ex);
         }
