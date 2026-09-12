@@ -253,7 +253,7 @@ internal static class RegularFileText
                 var error = Marshal.GetLastPInvokeError();
                 throw error switch
                 {
-                    FileNotFound => new FileNotFoundException(null, path),
+                    FileNotFound => new FileNotFoundException($"Could not find file '{path}'.", path),
                     PathNotFound => new DirectoryNotFoundException($"Could not find a part of the path '{path}'."),
                     _ => new IOException($"unable to open the file (Win32 error {error})."),
                 };
