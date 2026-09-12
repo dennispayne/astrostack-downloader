@@ -189,7 +189,13 @@ public static partial class SecretRedactor
         foreach (var secret in secrets)
         {
             result = result.Replace(secret, Placeholder, StringComparison.Ordinal);
-            result = result.Replace(Uri.EscapeDataString(secret), Placeholder, StringComparison.Ordinal);
+            var escaped = Uri.EscapeDataString(secret);
+            result = result.Replace(escaped, Placeholder, StringComparison.Ordinal);
+            var formEncoded = escaped.Replace("%20", "+", StringComparison.Ordinal);
+            if (!string.Equals(formEncoded, escaped, StringComparison.Ordinal))
+            {
+                result = result.Replace(formEncoded, Placeholder, StringComparison.Ordinal);
+            }
         }
 
         return result;
