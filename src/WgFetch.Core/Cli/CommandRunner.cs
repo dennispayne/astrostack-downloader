@@ -139,7 +139,21 @@ public sealed partial class CommandRunner
 
     private async Task<ExitCode> ExecuteAsync(ParsedCommandLine parsed, CancellationToken cancellationToken)
     {
-        var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        WgFetchConfig config;
+        try
+        {
+            config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;
+            var message = SecretRedactor.Redact(
+                $"unable to read config file '{path}': {exception.Message}",
+                ResolveCliAndEnvironmentSecrets(parsed));
+            _stderr.WriteLine($"wgfetch: {message}");
+            return ExitCode.ConfigurationError;
+        }
+
         if (parsed.Command == "config")
         {
             var configSecrets = ResolveConfigSecrets(parsed, config);
@@ -226,18 +240,28 @@ public sealed partial class CommandRunner
     /// This deliberately aggregates CLI, environment and persisted values instead of resolving
     /// precedence, so stale or overridden secrets cannot leak from displayed persisted endpoints.
     /// </summary>
-    private IReadOnlyList<string> ResolveConfigSecrets(ParsedCommandLine parsed, WgFetchConfig config)
+    private IReadOnlyList<string> ResolveConfigSecrets(ParsedCommandLine parsed, WgFetchConfig config) =>
+        ResolveCliAndEnvironmentSecrets(parsed)
+            .Concat([config.AiKey, config.SearchKey, config.GithubToken])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    /// <summary>
+    /// Collects CLI- and environment-supplied credential values for redaction only, used when a
+    /// persisted config is unavailable (for example when it fails to load) so error messages still
+    /// never render a credential that was passed on the command line or via the environment.
+    /// </summary>
+    private IReadOnlyList<string> ResolveCliAndEnvironmentSecrets(ParsedCommandLine parsed)
     {
         var secrets = new[] {
                 parsed.Value("--ai-key"),
                 Lookup(RunSettings.AiKeyEnvironmentVariable),
-                config.AiKey,
                 parsed.Value("--search-key"),
                 Lookup(RunSettings.SearchKeyEnvironmentVariable),
-                config.SearchKey,
                 parsed.Value("--github-token"),
                 Lookup(RunSettings.GithubTokenEnvironmentVariable),
-                config.GithubToken,
             }
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value!)

@@ -182,6 +182,32 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void RedactUrl_preserves_sensitive_parameter_redaction_in_a_fragment_that_also_contains_a_known_secret()
+    {
+        // The known-secret pass over the fragment must operate on the already-redacted fragment,
+        // not the raw original one, or it would restore the unregistered "access_token" value while
+        // only redacting the registered "known-secret" value in "state".
+        var redacted = SecretRedactor.RedactUrl(
+            "https://host.example/callback#access_token=attacker-value&state=known-secret",
+            ["known-secret"]);
+
+        Assert.DoesNotContain("attacker-value", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("known-secret", redacted, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("X-Amz-Signature")]
+    [InlineData("custom_token")]
+    public void RedactUrl_redacts_vendor_and_custom_credential_parameter_variants(string parameterName)
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://host.example/asset?{parameterName}=arbitrary-secret&q=nina");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+        Assert.Contains("q=nina", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Redact_matches_a_lowercase_percent_encoded_known_secret_outside_a_url()
     {
         // Uri.EscapeDataString produces uppercase hex ("%2F"); a caller rendering the same secret

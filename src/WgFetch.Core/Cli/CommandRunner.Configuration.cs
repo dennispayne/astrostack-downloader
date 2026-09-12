@@ -195,12 +195,21 @@ public sealed partial class CommandRunner
 
         var models = _dependencies.PrereqModels ?? PinnedModels.All;
         IReadOnlyList<PrereqModelStatus> statuses = [];
-        await console.Status()
-            .StartAsync("Checking pinned model files...", async _ =>
-            {
-                statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
-            })
-            .ConfigureAwait(false);
+        try
+        {
+            await console.Status()
+                .StartAsync("Checking pinned model files...", async _ =>
+                {
+                    statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
+                })
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
+            console.MarkupLine($"[red]Unable to check pinned model files:[/] {Markup.Escape(display)}");
+            return ExitCode.MissingPrerequisite;
+        }
         var modelsRootDisplay = Logging.SecretRedactor.Redact(modelsRoot, redactionSecrets);
         var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRootDisplay)})");
         table.AddColumn("Model");
@@ -279,14 +288,23 @@ public sealed partial class CommandRunner
             ? models.Select(model => model.Id).ToHashSet(StringComparer.Ordinal)
             : new HashSet<string>([installChoices[choice]], StringComparer.Ordinal);
         PrereqInstallResult? result = null;
-        await console.Status()
-            .StartAsync("Installing pinned model files...", async _ =>
-            {
-                result = await new PrereqInstaller(CreateHttpGateway(), _logger, models)
-                    .InstallAsync(modelsRoot, selected, dryRun: false, cancellationToken)
-                    .ConfigureAwait(false);
-            })
-            .ConfigureAwait(false);
+        try
+        {
+            await console.Status()
+                .StartAsync("Installing pinned model files...", async _ =>
+                {
+                    result = await new PrereqInstaller(CreateHttpGateway(), _logger, models)
+                        .InstallAsync(modelsRoot, selected, dryRun: false, cancellationToken)
+                        .ConfigureAwait(false);
+                })
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
+            console.MarkupLine($"[red]Unable to install pinned model files:[/] {Markup.Escape(display)}");
+            return ExitCode.MissingPrerequisite;
+        }
 
         foreach (var message in result!.Messages)
         {

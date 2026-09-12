@@ -512,6 +512,50 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task Config_set_reports_a_configuration_error_instead_of_crashing_for_an_invalid_config_path()
+    {
+        // Path.GetFullPath (called from ConfigFile's AcquireLockAsync) throws ArgumentException for a
+        // path containing a NUL character; this must be translated the same way as other config-file
+        // I/O failures rather than escaping RunAsync.
+        var configPath = "config\0invalid.json";
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(
+            ["config", "set", "plain", "true", "--config", configPath],
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.ConfigurationError, exit);
+        Assert.NotEmpty(stderr.ToString());
+    }
+
+    [Fact]
+    public async Task Any_command_reports_a_configuration_error_instead_of_crashing_when_the_config_file_cannot_be_read()
+    {
+        using var temp = new TempDirectory();
+        const string pathSecret = "path-token-secret";
+        var directory = temp.Combine(pathSecret);
+        Directory.CreateDirectory(directory);
+        var configPath = Path.Combine(directory, "config.json");
+        await ConfigFile.SaveAsync(new WgFetchConfig { Scope = "user" }, configPath, CancellationToken.None);
+        var environment = new Dictionary<string, string?>
+        {
+            ["CI"] = "true",
+            ["WGFETCH_AI_KEY"] = pathSecret,
+        };
+        var (runner, _, stderr) = CreateRunner(environment: environment);
+
+        // Hold the file exclusively so ConfigFile.LoadAsync's own File.OpenRead fails: previously this
+        // exception escaped ExecuteAsync unhandled for every command, including plain "status".
+        using (new FileStream(configPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var exit = await runner.RunAsync(["status", "--config", configPath], CancellationToken.None);
+
+            Assert.Equal(ExitCode.ConfigurationError, exit);
+            Assert.DoesNotContain(pathSecret, stderr.ToString(), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task Config_interactive_rejects_plain_terminal_mode()
     {
         var (runner, _, stderr) = CreateRunner();

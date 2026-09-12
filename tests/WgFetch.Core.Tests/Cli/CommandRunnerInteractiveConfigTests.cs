@@ -181,6 +181,31 @@ public sealed class CommandRunnerInteractiveConfigTests
     }
 
     [Fact]
+    public async Task Interactive_session_reports_install_failure_instead_of_crashing_when_the_model_directory_is_a_file()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        var modelsRoot = temp.Combine("models");
+        Directory.CreateDirectory(modelsRoot);
+        var model = TestModel("demo-model", "https://huggingface.co/test/demo.bin", "model bytes"u8.ToArray());
+        // "demo-model" already names a regular file where the installer needs to create a directory:
+        // Directory.CreateDirectory then throws IOException, which must be converted to a failed
+        // result rather than crashing the interactive session.
+        await File.WriteAllTextAsync(Path.Combine(modelsRoot, model.Id), "not a directory", CancellationToken.None);
+        await ConfigFile.SaveAsync(new WgFetchConfig { ModelsRoot = modelsRoot }, configPath, CancellationToken.None);
+
+        var console = CreateInteractiveConsole();
+        SelectByIndex(console, ModelPrerequisitesIndex);
+        SelectByIndex(console, 0); // "Install demo-model" is the only model choice.
+        var (runner, _, _) = CreateInteractiveRunner(console, models: [model]);
+
+        var exit = await runner.RunAsync(["config", "--interactive", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.MissingPrerequisite, exit);
+        Assert.Contains("Unable to install", console.Output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Interactive_session_installs_all_models()
     {
         using var temp = new TempDirectory();

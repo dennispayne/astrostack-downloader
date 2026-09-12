@@ -19,6 +19,14 @@ public static partial class SecretRedactor
         "signature", "sig", "password", "secret", "clientsecret", "xapikey", "code",
     };
 
+    // Vendor-specific and custom credential parameters (for example "X-Amz-Signature" or
+    // "custom_token") vary too widely to enumerate exactly, so any normalized name ending in one of
+    // these suffixes is treated as sensitive too (docs/REQUIREMENTS.md, "Privacy").
+    private static readonly string[] SensitiveQueryKeySuffixes =
+    [
+        "key", "token", "secret", "signature", "password", "credential", "auth",
+    ];
+
     private static readonly HashSet<string> SensitiveFieldNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "aiKey", "searchKey", "githubToken", "apiKey", "token", "password", "secret", "authorization",
@@ -145,7 +153,11 @@ public static partial class SecretRedactor
             var decodedFragment = DecodeUriComponent(escapedFragment);
             if (ContainsSecret(decodedFragment, secrets))
             {
-                builder.Fragment = RedactKnownSecrets(decodedFragment, secrets);
+                // Apply the known-secret replacement to the fragment already redacted above (not the
+                // raw original fragment), otherwise this pass would discard the sensitive-parameter
+                // redaction performed for "#access_token=..." style fragments.
+                var currentFragment = builder.Fragment.TrimStart('#');
+                builder.Fragment = RedactKnownSecrets(DecodeUriComponent(currentFragment), secrets);
             }
         }
 
@@ -195,7 +207,7 @@ public static partial class SecretRedactor
             var name = DecodeQueryComponent(rawName);
             var value = DecodeQueryComponent(rawValue);
             var secretInName = ContainsSecret(name, secrets);
-            if (SensitiveQueryKeys.Contains(NormalizeParameterName(name)) ||
+            if (IsSensitiveParameterName(name) ||
                 secretInName ||
                 ContainsSecret(value, secrets))
             {
@@ -204,6 +216,35 @@ public static partial class SecretRedactor
         }
 
         return string.Join('&', parts);
+    }
+
+    /// <summary>
+    /// True when a query/fragment parameter name is a known sensitive key, or a vendor/custom
+    /// variant of one (for example <c>X-Amz-Signature</c> or <c>custom_token</c>), after
+    /// normalization.
+    /// </summary>
+    private static bool IsSensitiveParameterName(string name)
+    {
+        var normalized = NormalizeParameterName(name);
+        if (normalized.Length == 0)
+        {
+            return false;
+        }
+
+        if (SensitiveQueryKeys.Contains(normalized))
+        {
+            return true;
+        }
+
+        foreach (var suffix in SensitiveQueryKeySuffixes)
+        {
+            if (normalized.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

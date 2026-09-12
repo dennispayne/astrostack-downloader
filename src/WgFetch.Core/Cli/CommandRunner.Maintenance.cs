@@ -178,7 +178,8 @@ public sealed partial class CommandRunner
         {
             return (null, SecretRedactor.Redact(exception.Message, redactionSecrets));
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or PathTooLongException)
         {
             return (null, SecretRedactor.Redact($"unable to update config file '{path}': {exception.Message}", redactionSecrets));
         }
