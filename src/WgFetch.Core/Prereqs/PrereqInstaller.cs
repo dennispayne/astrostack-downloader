@@ -79,10 +79,16 @@ public sealed class PrereqInstaller
         Path.Combine(modelsRoot, model.Id);
 
     /// <summary>Reports presence, paths, sizes and verification state for every pinned model.</summary>
+    public static Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
+        string modelsRoot,
+        CancellationToken cancellationToken) =>
+        StatusAsync(modelsRoot, null, cancellationToken);
+
+    /// <summary>Reports presence, paths, sizes and verification state for the supplied pinned models.</summary>
     public static async Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
         string modelsRoot,
-        CancellationToken cancellationToken,
-        IReadOnlyList<PinnedModel>? models = null)
+        IReadOnlyList<PinnedModel>? models,
+        CancellationToken cancellationToken)
     {
         var result = new List<PrereqModelStatus>();
         foreach (var model in models ?? PinnedModels.All)
@@ -229,7 +235,7 @@ public sealed class PrereqInstaller
                 cancellationToken).ConfigureAwait(false);
         }
 
-        var status = await StatusAsync(modelsRoot, cancellationToken, _models).ConfigureAwait(false);
+        var status = await StatusAsync(modelsRoot, _models, cancellationToken).ConfigureAwait(false);
         return new PrereqInstallResult(success, messages, status);
     }
 

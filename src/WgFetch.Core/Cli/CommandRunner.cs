@@ -35,6 +35,9 @@ public sealed record RunnerDependencies
 
     /// <summary>Overrides interactive terminal I/O so embedded callers can supply their own console.</summary>
     public IAnsiConsole? InteractiveConsole { get; init; }
+
+    /// <summary>Overrides pinned models so interactive prerequisite management remains hermetic.</summary>
+    public IReadOnlyList<PinnedModel>? PrereqModels { get; init; }
 }
 
 /// <summary>

@@ -161,7 +161,7 @@ public sealed class ConfigRedactionTests
             Assert.Contains("searchProvider must be one of", providerError, StringComparison.Ordinal);
 
             Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "modelsRoot", "", out _, out var directoryError));
-            Assert.Equal("directory path must not be blank.", directoryError);
+            Assert.Equal("modelsRoot must not be blank.", directoryError);
         }
 
         [Theory]

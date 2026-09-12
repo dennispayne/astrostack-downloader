@@ -54,11 +54,6 @@ public sealed partial class CommandRunner
             }
 
             var prompt = new TextPrompt<string>($"New value for {choice} (leave blank to cancel)");
-            if (ConfigSettings.IsSecret(choice))
-            {
-                prompt.Secret();
-            }
-
             var value = console.Prompt(prompt);
             if (string.IsNullOrEmpty(value))
             {
@@ -109,9 +104,10 @@ public sealed partial class CommandRunner
         string configPath,
         CancellationToken cancellationToken)
     {
+        var models = _dependencies.PrereqModels ?? PinnedModels.All;
         var modelsRoot = Path.GetFullPath(
             string.IsNullOrWhiteSpace(config.ModelsRoot) ? WgFetchPaths.ModelsDirectory : config.ModelsRoot);
-        var statuses = await PrereqInstaller.StatusAsync(modelsRoot, cancellationToken).ConfigureAwait(false);
+        var statuses = await PrereqInstaller.StatusAsync(modelsRoot, models, cancellationToken).ConfigureAwait(false);
         var table = new Table().Border(TableBorder.Rounded).Title($"Model prerequisites ({Markup.Escape(modelsRoot)})");
         table.AddColumn("Model");
         table.AddColumn("Status");
@@ -125,7 +121,7 @@ public sealed partial class CommandRunner
         }
 
         console.Write(table);
-        var installChoices = PinnedModels.All.ToDictionary(
+        var installChoices = models.ToDictionary(
             model => $"Install {model.Id}",
             model => model.Id,
             StringComparer.Ordinal);
@@ -166,13 +162,13 @@ public sealed partial class CommandRunner
         }
 
         IReadOnlySet<string> selected = choice == InstallAllModelsChoice
-            ? PinnedModels.All.Select(model => model.Id).ToHashSet(StringComparer.Ordinal)
+            ? models.Select(model => model.Id).ToHashSet(StringComparer.Ordinal)
             : new HashSet<string>([installChoices[choice]], StringComparer.Ordinal);
         PrereqInstallResult? result = null;
         await console.Status()
             .StartAsync("Installing pinned model files...", async _ =>
             {
-                result = await new PrereqInstaller(CreateHttpGateway(), _logger)
+                result = await new PrereqInstaller(CreateHttpGateway(), _logger, models)
                     .InstallAsync(modelsRoot, selected, dryRun: false, cancellationToken)
                     .ConfigureAwait(false);
             })

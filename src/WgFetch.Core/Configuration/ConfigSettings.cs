@@ -5,18 +5,12 @@ namespace WgFetch.Core.Configuration;
 /// <summary>Maps the persisted configuration schema to its command-line setting names.</summary>
 public static class ConfigSettings
 {
-    private static readonly HashSet<string> SecretNames = new(StringComparer.Ordinal)
-    {
-    };
-
     public static IReadOnlyList<string> Names { get; } =
     [
         "outputDirectory", "cacheDirectory", "modelsRoot", "threshold", "architecture", "scope",
         "keepVersions", "aiMode", "aiEndpoint", "aiModel", "searchProvider",
         "searchEndpoint", "logLevel", "parallelDownloads", "maxPerHost", "plain",
     ];
-
-    public static bool IsSecret(string name) => SecretNames.Contains(Normalize(name));
 
     public static bool TrySet(WgFetchConfig config, string name, string value, out WgFetchConfig updated, out string? error)
     {
@@ -48,9 +42,9 @@ public static class ConfigSettings
 
         return normalized switch
         {
-            "outputdirectory" => SetDirectory(config, value, static (c, v) => c with { OutputDirectory = v }, out updated, out error),
-            "cachedirectory" => SetDirectory(config, value, static (c, v) => c with { CacheDirectory = v }, out updated, out error),
-            "modelsroot" => SetDirectory(config, value, static (c, v) => c with { ModelsRoot = v }, out updated, out error),
+            "outputdirectory" => SetDirectory(config, value, "outputDirectory", static (c, v) => c with { OutputDirectory = v }, out updated, out error),
+            "cachedirectory" => SetDirectory(config, value, "cacheDirectory", static (c, v) => c with { CacheDirectory = v }, out updated, out error),
+            "modelsroot" => SetDirectory(config, value, "modelsRoot", static (c, v) => c with { ModelsRoot = v }, out updated, out error),
             "architecture" => SetString(config, value, static (c, v) => c with { Architecture = v }, out updated, out error),
             "scope" => SetString(config, value, static (c, v) => c with { Scope = v }, out updated, out error),
             "aimode" => SetString(config, value, static (c, v) => c with { AiMode = v }, out updated, out error),
@@ -131,11 +125,11 @@ public static class ConfigSettings
         return true;
     }
 
-    private static bool SetDirectory(WgFetchConfig config, string value, Func<WgFetchConfig, string, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
+    private static bool SetDirectory(WgFetchConfig config, string value, string name, Func<WgFetchConfig, string, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            updated = config; error = "directory path must not be blank."; return false;
+            updated = config; error = $"{name} must not be blank."; return false;
         }
 
         try
@@ -145,7 +139,7 @@ public static class ConfigSettings
         }
         catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
         {
-            updated = config; error = "directory path is invalid."; return false;
+            updated = config; error = $"{name} directory path is invalid."; return false;
         }
     }
 
