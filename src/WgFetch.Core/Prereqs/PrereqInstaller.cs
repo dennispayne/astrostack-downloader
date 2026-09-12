@@ -91,7 +91,7 @@ public sealed class PrereqInstaller
         _models = models ?? PinnedModels.All;
     }
 
-    private static async Task<IDisposable> AcquireManifestLockAsync(string manifestPath, CancellationToken cancellationToken)
+    internal static async Task<IDisposable> AcquireManifestLockAsync(string manifestPath, CancellationToken cancellationToken)
     {
         var key = NormalizeManifestKey(manifestPath);
         RefCountedLock entry;
@@ -110,15 +110,23 @@ public sealed class PrereqInstaller
         }
         catch
         {
-            ReleaseManifestLockReference(key, entry);
+            ReleaseManifestLockReference(key, entry, releaseSemaphore: false);
             throw;
         }
     }
 
-    private static void ReleaseManifestLockReference(string key, RefCountedLock entry)
+    internal static bool HasManifestLock(string manifestPath) =>
+        ManifestLocks.ContainsKey(NormalizeManifestKey(manifestPath));
+
+    private static void ReleaseManifestLockReference(string key, RefCountedLock entry, bool releaseSemaphore)
     {
         lock (ManifestLocks)
         {
+            if (releaseSemaphore)
+            {
+                entry.Semaphore.Release();
+            }
+
             entry.RefCount--;
             if (entry.RefCount == 0)
             {
@@ -132,8 +140,7 @@ public sealed class PrereqInstaller
     {
         public void Dispose()
         {
-            entry.Semaphore.Release();
-            ReleaseManifestLockReference(key, entry);
+            ReleaseManifestLockReference(key, entry, releaseSemaphore: true);
         }
     }
 
