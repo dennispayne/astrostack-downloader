@@ -204,7 +204,8 @@ public sealed partial class CommandRunner
                 })
                 .ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or PathTooLongException)
         {
             var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
             console.MarkupLine($"[red]Unable to check pinned model files:[/] {Markup.Escape(display)}");
@@ -299,7 +300,8 @@ public sealed partial class CommandRunner
                 })
                 .ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or PathTooLongException)
         {
             var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
             console.MarkupLine($"[red]Unable to install pinned model files:[/] {Markup.Escape(display)}");
