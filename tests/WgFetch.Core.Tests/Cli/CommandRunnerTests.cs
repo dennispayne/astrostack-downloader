@@ -108,6 +108,7 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("\u001b[38;2;99;102;241m", stdout.ToString(), StringComparison.Ordinal);
         Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
     }
 
@@ -300,6 +301,31 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.Cancelled, exit);
         Assert.Contains("cancelled", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_UnreadableConfig_PreservesLandingAndUsageError()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(configPath, "{}", CancellationToken.None);
+        await using var lockedConfig = new FileStream(
+            configPath,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

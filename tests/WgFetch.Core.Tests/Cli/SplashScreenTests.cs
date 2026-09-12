@@ -47,6 +47,26 @@ public sealed class SplashScreenTests
         Assert.DoesNotContain("Get started", output.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(30, "just now")]
+    [InlineData(90, "1 hour ago")]
+    [InlineData(180, "3 hours ago")]
+    [InlineData(1440, "1 day ago")]
+    [InlineData(2880, "2 days ago")]
+    public void Plain_LastAttempt_UsesDeterministicElapsedTime(int elapsedMinutes, string expected)
+    {
+        var output = new StringWriter();
+        var now = new DateTimeOffset(2026, 9, 12, 0, 0, 0, TimeSpan.Zero);
+        var targets = new TargetsDocument
+        {
+            Targets = [new TargetEntry { Name = "nina", LastAttempt = now.AddMinutes(-elapsedMinutes) }],
+        };
+
+        SplashScreen.WritePlain(output, targets, "/source", prerequisitesInstalled: true, now);
+
+        Assert.Contains($"Last attempt       ·  {expected}", output.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Plain_EmptyTargets_ShowsStatusWithoutThrowing()
     {

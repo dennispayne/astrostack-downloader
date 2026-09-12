@@ -62,8 +62,13 @@ public static class TargetsFile
         {
             string key = ScalarKey(child.Key);
 
-            if (key == VersionKey && child.Value is YamlScalarNode versionScalar)
+            if (key == VersionKey)
             {
+                if (child.Value is not YamlScalarNode versionScalar)
+                {
+                    throw new FormatException("targets.yaml version must be a scalar.");
+                }
+
                 doc.Version = ParseVersion(versionScalar.Value);
             }
             else if (key == TargetsKey && child.Value is YamlSequenceNode targetsSequence)

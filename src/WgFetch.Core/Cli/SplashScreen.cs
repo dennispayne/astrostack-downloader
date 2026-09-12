@@ -19,9 +19,7 @@ public static class SplashScreen
     {
         ArgumentNullException.ThrowIfNull(writer);
 
-        writer.WriteLine("wgfetch");
-        writer.WriteLine("resolve • verify • download");
-        writer.WriteLine();
+        WritePlainHeader(writer);
         WriteStatus(writer, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError);
     }
 
@@ -32,6 +30,20 @@ public static class SplashScreen
         bool prerequisitesInstalled,
         DateTimeOffset? now = null,
         string? targetsError = null)
+    {
+        var status = new StringWriter(CultureInfo.InvariantCulture);
+        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError);
+        return new Rows(CreateInteractiveHeader(), new Text(status.ToString()));
+    }
+
+    internal static void WritePlainHeader(TextWriter writer)
+    {
+        writer.WriteLine("wgfetch");
+        writer.WriteLine("resolve • verify • download");
+        writer.WriteLine();
+    }
+
+    internal static IRenderable CreateInteractiveHeader()
     {
         // The rocket's roof is drawn with literal backslashes right up against a closing "[/]" tag.
         // Spectre's markup grammar only treats "[" and "]" specially (escaped as "[[" / "]]"), so a
@@ -52,17 +64,13 @@ public static class SplashScreen
             "[#6366f1] ╚══╝╚══╝  ╚═════╝ ╚═╝     ╚══════╝   ╚═╝    ╚═════╝╚═╝[/]\n\n" +
             "[#67e8f9]          resolve  •  verify  •  download[/]");
 
-        var panel = new Panel(art)
+        return new Panel(art)
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.FromHex("#6366f1"))
             .Padding(3, 1);
-
-        var status = new StringWriter(CultureInfo.InvariantCulture);
-        WriteStatus(status, targets, outputDirectory, prerequisitesInstalled, now ?? DateTimeOffset.UtcNow, targetsError);
-        return new Rows(panel, new Text(status.ToString()));
     }
 
-    private static void WriteStatus(
+    internal static void WriteStatus(
         TextWriter writer,
         TargetsDocument? targets,
         string outputDirectory,

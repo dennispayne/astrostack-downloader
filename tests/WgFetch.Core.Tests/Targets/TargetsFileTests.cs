@@ -150,6 +150,16 @@ public class TargetsFileTests
         Assert.Contains("version", ex.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("version: [1]\ntargets: []")]
+    [InlineData("version:\n  value: 1\ntargets: []")]
+    public void Parse_NonScalarVersion_FailsClosedWithFormatException(string yaml)
+    {
+        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
+
+        Assert.Contains("version must be a scalar", ex.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Add_IsIdempotent_AndCaseInsensitive()
     {

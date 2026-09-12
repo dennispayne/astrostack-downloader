@@ -8,8 +8,8 @@ using WgFetch.Core.Inference;
 using WgFetch.Core.Logging;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
-using WgFetch.Core.Progress;
 using WgFetch.Core.Prereqs;
+using WgFetch.Core.Progress;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
 using YamlDotNet.Core;
@@ -210,34 +210,37 @@ public sealed partial class CommandRunner
             _stderr.WriteLine($"wgfetch: {targetsError}.");
         }
 
-        var prerequisiteStatuses = await PrereqInstaller.StatusAsync(settings.ModelsRoot, cancellationToken)
-            .ConfigureAwait(false);
-        var prerequisitesInstalled = PrerequisitesReady(prerequisiteStatuses);
+        IAnsiConsole? console = null;
         if (terminal == TerminalMode.Interactive)
         {
-            var console = AnsiConsole.Create(new AnsiConsoleSettings
+            console = AnsiConsole.Create(new AnsiConsoleSettings
             {
+                Ansi = AnsiSupport.Yes,
                 ColorSystem = ColorSystemSupport.TrueColor,
                 Out = new AnsiConsoleOutput(_stdout),
             });
-            console.Write(SplashScreen.CreateInteractive(
-                targets,
-                settings.OutputDirectory,
-                prerequisitesInstalled,
-                _dependencies.TimeProvider.GetUtcNow(),
-                targetsError));
+            console.Write(SplashScreen.CreateInteractiveHeader());
             console.WriteLine();
         }
         else
         {
-            SplashScreen.WritePlain(
-                _stdout,
-                targets,
-                settings.OutputDirectory,
-                prerequisitesInstalled,
-                _dependencies.TimeProvider.GetUtcNow(),
-                targetsError);
+            SplashScreen.WritePlainHeader(_stdout);
         }
+
+        _stdout.Flush();
+
+        var prerequisiteStatuses = await PrereqInstaller.StatusAsync(
+            settings.ModelsRoot,
+            [PinnedModels.Embedding],
+            cancellationToken).ConfigureAwait(false);
+        var prerequisitesInstalled = PrerequisitesReady(prerequisiteStatuses);
+        SplashScreen.WriteStatus(
+            _stdout,
+            targets,
+            settings.OutputDirectory,
+            prerequisitesInstalled,
+            _dependencies.TimeProvider.GetUtcNow(),
+            targetsError);
 
         _stdout.WriteLine();
         _stdout.Write(CommandLineParser.RenderHelp());
@@ -252,8 +255,8 @@ public sealed partial class CommandRunner
         _dependencies.TerminalEnvironment?.OutputRedirected ?? Console.IsOutputRedirected;
 
     /// <summary>
-    /// Every pinned model must be present and report <see cref="PrereqState.Present"/>; an empty
-    /// status list (no pinned models configured) is treated as "not ready" rather than vacuously true.
+    /// Every required model must be present and report <see cref="PrereqState.Present"/>; an empty
+    /// status list is treated as "not ready" rather than vacuously true.
     /// </summary>
     private static bool PrerequisitesReady(IReadOnlyList<PrereqModelStatus> statuses) =>
         statuses.Count > 0 && statuses.All(model => model.Ready);

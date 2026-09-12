@@ -136,7 +136,11 @@ public sealed class AotSmokeTests
             return;
         }
 
-        Assert.True(OperatingSystem.IsLinux(), "The interactive AOT landing smoke test requires a Linux PTY harness.");
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
         var script = FindExecutable("script");
         Assert.True(script is not null, "The interactive AOT landing smoke test requires the 'script' PTY utility.");
 

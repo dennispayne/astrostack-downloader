@@ -111,14 +111,14 @@ public static class ConfigFile
             return new WgFetchConfig();
         }
 
-        await using var stream = File.OpenRead(target);
         try
         {
+            await using var stream = File.OpenRead(target);
             return await JsonSerializer
                 .DeserializeAsync(stream, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
                 .ConfigureAwait(false) ?? new WgFetchConfig();
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             return new WgFetchConfig();
         }

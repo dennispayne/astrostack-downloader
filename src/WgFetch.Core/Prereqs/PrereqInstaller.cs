@@ -81,8 +81,16 @@ public sealed class PrereqInstaller
         string modelsRoot,
         CancellationToken cancellationToken)
     {
+        return await StatusAsync(modelsRoot, PinnedModels.All, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task<IReadOnlyList<PrereqModelStatus>> StatusAsync(
+        string modelsRoot,
+        IReadOnlyList<PinnedModel> models,
+        CancellationToken cancellationToken)
+    {
         var result = new List<PrereqModelStatus>();
-        foreach (var model in PinnedModels.All)
+        foreach (var model in models)
         {
             var directory = ModelDirectory(modelsRoot, model);
             var assets = new List<PrereqAssetStatus>();
