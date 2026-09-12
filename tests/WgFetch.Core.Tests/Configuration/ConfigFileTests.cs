@@ -431,7 +431,8 @@ public sealed class ConfigRedactionTests
     }
 
     [Fact]
-    public void A_configured_secret_never_survives_redaction_of_arbitrary_text()    {
+    public void A_configured_secret_never_survives_redaction_of_arbitrary_text()
+    {
         var config = WithSecrets();
 
         var redacted = SecretRedactor.Redact(
