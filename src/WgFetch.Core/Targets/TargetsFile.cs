@@ -29,19 +29,34 @@ public static class TargetsFile
     /// exists but cannot be read or parsed fails closed as a <see cref="TargetsFileException"/>, so
     /// no caller has to know which parser or I/O exception type surfaced.
     /// </summary>
-    public static async Task<TargetsDocument> LoadAsync(string path, CancellationToken cancellationToken = default)
+    public static async Task<TargetsDocument> LoadAsync(string path, CancellationToken cancellationToken = default) =>
+        (await LoadDetailedAsync(path, cancellationToken).ConfigureAwait(false)).Document;
+
+    /// <summary>
+    /// Loads <paramref name="path"/> the same way <see cref="LoadAsync"/> does, but also reports
+    /// whether the file existed. Callers that must tell "nothing has ever been acquired" apart from
+    /// "a targets.yaml exists but is empty" — such as the landing view's first-run hint — need this;
+    /// everyone else can use <see cref="LoadAsync"/>. Reading directly instead of pre-checking with
+    /// <see cref="File.Exists(string)"/> means a path that exists but cannot be inspected as a regular
+    /// file — for example a directory named <c>targets.yaml</c>, or one blocked by permissions — fails
+    /// closed via <see cref="TargetsFileException"/> instead of being silently treated as missing.
+    /// </summary>
+    internal static async Task<(TargetsDocument Document, bool Existed)> LoadDetailedAsync(
+        string path,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-
-        if (!File.Exists(path))
-        {
-            return new TargetsDocument();
-        }
 
         string text;
         try
         {
             text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // A missing file (or a missing parent directory) is not an error: it means no targets have
+            // been acquired yet.
+            return (new TargetsDocument(), false);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -50,7 +65,7 @@ public static class TargetsFile
 
         try
         {
-            return Parse(text);
+            return (Parse(text), true);
         }
         catch (Exception ex) when (ex is FormatException or TargetsFileException)
         {

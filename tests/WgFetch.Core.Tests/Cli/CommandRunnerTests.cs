@@ -292,6 +292,31 @@ public sealed class CommandRunnerTests
         Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task NoCommand_TargetsPathIsDirectory_FailsClosedInsteadOfFirstRun()
+    {
+        using var temp = new TempDirectory();
+
+        // A directory named targets.yaml is not a missing file: File.Exists(path) reports false for
+        // it (same as a genuinely absent file), so the landing view must not rely on that check alone
+        // to decide "first run" — it must attempt to read the path and fail closed on what it finds.
+        Directory.CreateDirectory(Path.Combine(temp.Path, "targets.yaml"));
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("status", null, "targets: [\n")]
     [InlineData("remove", "nina", "targets: [\n")]

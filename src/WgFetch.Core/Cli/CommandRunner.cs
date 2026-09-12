@@ -204,9 +204,14 @@ public sealed partial class CommandRunner
         var targetsPath = TargetsPath(settings);
         try
         {
-            if (File.Exists(targetsPath))
+            // Let TargetsFile own the missing-file distinction: reading directly (rather than gating on
+            // File.Exists here) means a path that exists but cannot be inspected as a regular file — a
+            // directory named targets.yaml, or one blocked by permissions — fails closed below instead
+            // of being silently treated as a first run.
+            var (document, existed) = await TargetsFile.LoadDetailedAsync(targetsPath, cancellationToken).ConfigureAwait(false);
+            if (existed)
             {
-                targets = await TargetsFile.LoadAsync(targetsPath, cancellationToken).ConfigureAwait(false);
+                targets = document;
             }
         }
         catch (TargetsFileException)
