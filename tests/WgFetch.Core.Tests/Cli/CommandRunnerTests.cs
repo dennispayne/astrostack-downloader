@@ -416,8 +416,8 @@ public sealed class CommandRunnerTests
         bool truncateFirstAsset = false,
         long? firstAssetSizeOverride = null)
     {
-        // QuickReady is intentionally metadata-only for startup latency; these sparse files exercise its
-        // size checks without hashing or writing model-sized byte content.
+        // The no-command prerequisite probe is intentionally metadata-only for startup latency; these
+        // sparse files exercise its size checks without hashing or writing model-sized byte content.
         for (var i = 0; i < PinnedModels.Embedding.Assets.Count; i++)
         {
             var asset = PinnedModels.Embedding.Assets[i];
