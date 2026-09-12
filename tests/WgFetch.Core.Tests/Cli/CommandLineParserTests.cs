@@ -73,6 +73,17 @@ public sealed class CommandLineParserTests
         Assert.True(CommandLineParser.Parse(["prereqs", "reinstall"]).HasErrors);
     }
 
+    [Theory]
+    [InlineData("--models-root")]
+    [InlineData("--models-dir")]
+    public void Prereqs_accepts_canonical_models_root_and_deprecated_alias(string option)
+    {
+        var parsed = CommandLineParser.Parse(["prereqs", "status", option, "/tmp/models"]);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal("/tmp/models", parsed.Value(option));
+    }
+
     [Fact]
     public void Verbose_implies_debug_logging()
     {
