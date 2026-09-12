@@ -52,14 +52,10 @@ public static partial class SecretRedactor
 
         if (secrets.Length > 0)
         {
-            foreach (var secret in secrets)
-            {
-                // No minimum length here: a configured credential must never appear in output even
-                // when it is short, which can occasionally over-redact an unrelated short substring
-                // that happens to match it (docs/REQUIREMENTS.md, "Privacy").
-                result = result.Replace(secret, Placeholder, StringComparison.Ordinal);
-                result = result.Replace(Uri.EscapeDataString(secret), Placeholder, StringComparison.Ordinal);
-            }
+            // No minimum length here: a configured credential must never appear in output even when
+            // it is short, which can occasionally over-redact an unrelated short substring that
+            // happens to match it (docs/REQUIREMENTS.md, "Privacy").
+            result = RedactKnownSecrets(result, secrets);
         }
 
         result = GitHubTokenPattern().Replace(result, Placeholder);
@@ -114,7 +110,7 @@ public static partial class SecretRedactor
                 {
                     if (eq < 0 && ContainsSecret(DecodeQueryComponent(parts[i]), secrets))
                     {
-                        parts[i] = Placeholder;
+                        parts[i] = RedactKnownSecrets(parts[i], secrets);
                     }
 
                     continue;
