@@ -39,9 +39,9 @@ public sealed class FileLockContentionTests
     [Fact]
     public void Win32_sharing_and_lock_violations_are_contention()
     {
-        Assert.True(FileLockContention.IsContention(new IOException("sharing") { HResult = unchecked((int)0x80070020) }));
-        Assert.True(FileLockContention.IsContention(new IOException("lock") { HResult = unchecked((int)0x80070021) }));
-        Assert.False(FileLockContention.IsContention(new IOException("disk full") { HResult = unchecked((int)0x80070070) }));
+        Assert.True(FileLockContention.IsContention(IOExceptionWithHResult("sharing", unchecked((int)0x80070020))));
+        Assert.True(FileLockContention.IsContention(IOExceptionWithHResult("lock", unchecked((int)0x80070021))));
+        Assert.False(FileLockContention.IsContention(IOExceptionWithHResult("disk full", unchecked((int)0x80070070))));
     }
 
     [Fact]
@@ -52,10 +52,10 @@ public sealed class FileLockContentionTests
             return;
         }
 
-        Assert.True(FileLockContention.IsContention(new IOException("would block") { HResult = 11 }));
-        Assert.True(FileLockContention.IsContention(new IOException("busy") { HResult = 16 }));
-        Assert.True(FileLockContention.IsContention(new IOException("would block") { HResult = 35 }));
-        Assert.False(FileLockContention.IsContention(new IOException("no space") { HResult = 28 }));
+        Assert.True(FileLockContention.IsContention(IOExceptionWithHResult("busy", 16)));
+        Assert.True(FileLockContention.IsContention(IOExceptionWithHResult("would block", OperatingSystem.IsMacOS() ? 35 : 11)));
+        Assert.False(FileLockContention.IsContention(IOExceptionWithHResult("platform-specific non-contention", OperatingSystem.IsMacOS() ? 11 : 35)));
+        Assert.False(FileLockContention.IsContention(IOExceptionWithHResult("no space", 28)));
     }
 
     [Fact]
@@ -69,4 +69,7 @@ public sealed class FileLockContentionTests
 
         Assert.False(FileLockContention.IsContention(exception));
     }
+
+    private static IOException IOExceptionWithHResult(string message, int hResult)
+        => new(message) { HResult = hResult };
 }

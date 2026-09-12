@@ -201,19 +201,22 @@ public static class ConfigFile
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await using (var stream = new FileStream(
-                temp,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 4096,
-                FileOptions.Asynchronous))
+            var options = new FileStreamOptions
             {
-                if (!OperatingSystem.IsWindows())
-                {
-                    File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                }
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                BufferSize = 4096,
+                Options = FileOptions.Asynchronous,
+            };
 
+            if (!OperatingSystem.IsWindows())
+            {
+                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            }
+
+            await using (var stream = new FileStream(temp, options))
+            {
                 await JsonSerializer
                     .SerializeAsync(stream, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
                     .ConfigureAwait(false);

@@ -11,10 +11,6 @@ internal static class FileLockContention
     private const int SharingViolation = unchecked((int)0x80070020);
     private const int LockViolation = unchecked((int)0x80070021);
 
-    // On Unix an exclusive open that loses the advisory lock surfaces the native errno as HResult:
-    // EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on macOS, and EBUSY is 16 on both.
-    private static readonly int[] UnixContentionErrnos = [11, 16, 35];
-
     /// <summary>
     /// Returns <see langword="true"/> when the exception means another holder owns the lock file.
     /// </summary>
@@ -34,6 +30,15 @@ internal static class FileLockContention
             return true;
         }
 
-        return !OperatingSystem.IsWindows() && Array.IndexOf(UnixContentionErrnos, exception.HResult) >= 0;
+        if (OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        // On Unix an exclusive open that loses the advisory lock surfaces the native errno as HResult.
+        // EBUSY is 16 on both Linux/macOS, while EAGAIN/EWOULDBLOCK is 11 on Linux and 35 on macOS.
+        return OperatingSystem.IsMacOS()
+            ? exception.HResult is 16 or 35
+            : exception.HResult is 11 or 16;
     }
 }
