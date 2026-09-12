@@ -57,6 +57,10 @@ public sealed record ParsedCommandLine
 /// </summary>
 public static class CommandLineParser
 {
+    private const int CommandHelpColumnWidth = 28;
+    private const int OptionHelpColumnWidth = 24;
+    private const int MinimumHelpColumnGap = 2;
+
     private static readonly OptionSpec[] GlobalOptions =
     [
         new("--log-level", OptionArity.Value, "trace|debug|info|warn|error|none (default info)"),
@@ -307,7 +311,7 @@ public static class CommandLineParser
             foreach (var c in Commands)
             {
                 var name = c.SubCommands.Count > 0 ? $"{c.Name} {string.Join('|', c.SubCommands)}" : c.Name;
-                writer.WriteLine($"  {name,-28}{c.Summary}");
+                WriteHelpRow(writer, name, c.Summary, CommandHelpColumnWidth);
             }
 
             writer.WriteLine();
@@ -326,9 +330,13 @@ public static class CommandLineParser
         writer.WriteLine("Options:");
         foreach (var option in spec.Options)
         {
-            writer.WriteLine($"  {option.Name,-24}{option.Description}");
+            WriteHelpRow(writer, option.Name, option.Description, OptionHelpColumnWidth);
         }
 
         return writer.ToString();
     }
+
+    private static void WriteHelpRow(TextWriter writer, string label, string description, int columnWidth) =>
+        writer.WriteLine(
+            $"  {label}{new string(' ', Math.Max(MinimumHelpColumnGap, columnWidth - label.Length))}{description}");
 }
