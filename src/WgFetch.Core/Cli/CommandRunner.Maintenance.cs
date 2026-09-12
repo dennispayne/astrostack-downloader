@@ -667,7 +667,7 @@ public sealed partial class CommandRunner
 
         await File.WriteAllTextAsync(
             Path.Combine(directory, "config.json"),
-            JsonSerializer.Serialize(config.Redacted(), ConfigJsonContext.Default.WgFetchConfig),
+            JsonSerializer.Serialize(config.Redacted(settings.Secrets), ConfigJsonContext.Default.WgFetchConfig),
             cancellationToken).ConfigureAwait(false);
 
         var models = await PrereqInstaller.StatusAsync(settings.ModelsRoot, cancellationToken).ConfigureAwait(false);

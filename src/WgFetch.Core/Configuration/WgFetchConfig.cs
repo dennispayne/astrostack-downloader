@@ -97,9 +97,18 @@ public sealed record WgFetchConfig
     /// (for example <c>******host/...</c> or <c>?api_key=...</c>), so they are run through
     /// the same <see cref="Logging.SecretRedactor"/> used for logs (docs/REQUIREMENTS.md, "Privacy").
     /// </summary>
-    public WgFetchConfig Redacted()
+    /// <param name="supplementalSecrets">
+    /// Additional effective secrets to redact beyond this config's own <see cref="Secrets"/>, such as
+    /// CLI/environment credentials from <c>RunSettings.Secrets</c> that are not persisted here but may
+    /// still be embedded in a persisted endpoint value.
+    /// </param>
+    public WgFetchConfig Redacted(IEnumerable<string>? supplementalSecrets = null)
     {
-        var secrets = Secrets.ToArray();
+        var secrets = Secrets
+            .Concat(supplementalSecrets ?? [])
+            .Where(secret => !string.IsNullOrWhiteSpace(secret))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         string? Redact(string? value)
         {
             if (value is null)

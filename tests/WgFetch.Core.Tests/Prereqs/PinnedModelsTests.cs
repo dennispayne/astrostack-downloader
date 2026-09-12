@@ -217,6 +217,48 @@ public sealed class PinnedModelsTests
     }
 
     [Fact]
+    public async Task Install_follows_a_redirect_to_an_allowlisted_download_host()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var cdnUrl = "https://cdn-lfs.huggingface.co/repos/abc/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(cdnUrl))
+            .Map(cdnUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal([candidateUrl, cdnUrl], http.Requests.Select(request => request.Url.ToString()));
+        Assert.True(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_refuses_a_redirect_to_a_non_allowlisted_host()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var offAllowlistUrl = "https://attacker.example/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(offAllowlistUrl))
+            .Map(offAllowlistUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.DoesNotContain(http.Requests, request => string.Equals(request.Url.ToString(), offAllowlistUrl, StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
     public async Task Selective_install_merges_with_a_previously_installed_model_in_the_manifest()
     {
         using var temp = new TempDirectory();

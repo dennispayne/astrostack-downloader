@@ -118,6 +118,35 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void RedactUrl_redacts_a_token_shaped_value_in_the_path_even_when_not_a_known_secret()
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://vendor.example/artifacts/{OpenAiKey}/model.bin");
+
+        Assert.DoesNotContain(OpenAiKey, redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_redacts_a_github_token_shaped_fragment()
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://vendor.example/download#{GitHubToken}");
+
+        Assert.DoesNotContain(GitHubToken, redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redact_matches_a_lowercase_percent_encoded_known_secret_outside_a_url()
+    {
+        // Uri.EscapeDataString produces uppercase hex ("%2F"); a caller rendering the same secret
+        // with lowercase hex ("%2f") outside an HTTP URL must still be caught.
+        var redacted = SecretRedactor.Redact("path=a%2fb", ["a/b"]);
+
+        Assert.DoesNotContain("a%2fb", redacted, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Recognises_sensitive_configuration_field_names()
     {
         Assert.True(SecretRedactor.IsSensitiveFieldName("githubToken"));

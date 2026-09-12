@@ -318,6 +318,23 @@ public sealed class ConfigRedactionTests
         Assert.Contains(SecretRedactor.Placeholder, redacted.OutputDirectory, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Redacted_scrubs_a_supplemental_effective_secret_not_persisted_in_the_config()
+    {
+        // A CLI/environment credential (RunSettings.Secrets) that is not itself persisted can still be
+        // embedded in a persisted endpoint value; DiagnosticsAsync must redact it too.
+        const string supplementalSecret = "cli-only-secret-value";
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = $"https://ai.example/v1?custom_token={supplementalSecret}",
+        };
+
+        var redacted = config.Redacted([supplementalSecret]);
+
+        Assert.DoesNotContain(supplementalSecret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
     public sealed class ConfigSettingsTests
     {
         [Fact]

@@ -155,7 +155,19 @@ public static partial class SecretRedactor
 
         // UriBuilder percent-encodes the placeholder inside userinfo; normalise it back for readability.
         result = result.Replace("%5BREDACTED%5D", Placeholder, StringComparison.OrdinalIgnoreCase);
-        return secrets.Length == 0 ? result : RedactKnownSecrets(result, secrets);
+        if (secrets.Length > 0)
+        {
+            result = RedactKnownSecrets(result, secrets);
+        }
+
+        // A token-shaped credential (GitHub PAT, OpenAI-style key, bearer token) may appear in a
+        // URL's path or fragment even when it was never registered as a known secret; callers such
+        // as InstallerDownloader use RedactUrl directly, so the well-known patterns must also be
+        // applied here rather than only in Redact (docs/REQUIREMENTS.md, "Privacy").
+        result = GitHubTokenPattern().Replace(result, Placeholder);
+        result = OpenAiKeyPattern().Replace(result, Placeholder);
+        result = BearerPattern().Replace(result, $"$1 {Placeholder}");
+        return result;
     }
 
     /// <summary>Decodes a query-string component using both percent-encoding and form-encoding (<c>+</c> for space).</summary>
@@ -196,11 +208,15 @@ public static partial class SecretRedactor
         {
             result = result.Replace(secret, Placeholder, StringComparison.Ordinal);
             var escaped = Uri.EscapeDataString(secret);
-            result = result.Replace(escaped, Placeholder, StringComparison.Ordinal);
+
+            // Percent-encoding hex digits are case-insensitive (RFC 3986), but callers outside
+            // HTTP URLs (e.g. arbitrary log text) may render a secret using either casing, so a
+            // known credential such as "a/b" rendered as "a%2fb" must still be caught here.
+            result = result.Replace(escaped, Placeholder, StringComparison.OrdinalIgnoreCase);
             var formEncoded = escaped.Replace("%20", "+", StringComparison.Ordinal);
             if (!string.Equals(formEncoded, escaped, StringComparison.Ordinal))
             {
-                result = result.Replace(formEncoded, Placeholder, StringComparison.Ordinal);
+                result = result.Replace(formEncoded, Placeholder, StringComparison.OrdinalIgnoreCase);
             }
         }
 

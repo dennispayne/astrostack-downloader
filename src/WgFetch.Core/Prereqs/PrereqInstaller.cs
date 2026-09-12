@@ -432,9 +432,62 @@ public sealed class PrereqInstaller
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            var response = await _http
-                .SendAsync(new HttpRequestSpec { Url = new Uri(asset.Url), Verb = HttpVerb.Get }, cancellationToken)
-                .ConfigureAwait(false);
+            if (!Uri.TryCreate(asset.Url, UriKind.Absolute, out var currentUrl))
+            {
+                _logger.LogError("Model asset URL is not a valid absolute URI for {Asset}.", asset.RelativePath);
+                return null;
+            }
+
+            HttpResponseSpec? response = null;
+            for (var hop = 0; hop <= MaxRedirects; hop++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                response = await _http
+                    .SendAsync(new HttpRequestSpec { Url = currentUrl, Verb = HttpVerb.Get }, cancellationToken)
+                    .ConfigureAwait(false);
+
+                // Hugging Face's own host issues the metadata redirect, then hands large (LFS/Xet-backed)
+                // blobs off to a CDN host; HttpGateway disables automatic redirects so the allowlist gate
+                // can decide every hop explicitly (docs/REQUIREMENTS.md, model pinning).
+                if (!response.IsRedirect)
+                {
+                    break;
+                }
+
+                var location = response.Header("Location");
+                await response.DisposeAsync().ConfigureAwait(false);
+                response = null;
+
+                if (string.IsNullOrWhiteSpace(location) || !Uri.TryCreate(currentUrl, location, out var next))
+                {
+                    _logger.LogError("Model download redirect for {Asset} had no usable Location header.", asset.RelativePath);
+                    return null;
+                }
+
+                if (!string.Equals(next.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                    !IsAllowedDownloadHost(next.Host))
+                {
+                    _logger.LogError(
+                        "Model download for {Asset} redirected to a non-allowlisted host '{Host}'.",
+                        asset.RelativePath,
+                        next.Host);
+                    return null;
+                }
+
+                currentUrl = next;
+
+                if (hop == MaxRedirects)
+                {
+                    _logger.LogError("Model download for {Asset} exceeded {Max} redirects.", asset.RelativePath, MaxRedirects);
+                    return null;
+                }
+            }
+
+            if (response is null)
+            {
+                _logger.LogError("Model download for {Asset} produced no response.", asset.RelativePath);
+                return null;
+            }
 
             await using (response.ConfigureAwait(false))
             {
@@ -467,6 +520,24 @@ public sealed class PrereqInstaller
         {
             TryDelete(temp);
         }
+    }
+
+    private const int MaxRedirects = 5;
+
+    private static bool IsAllowedDownloadHost(string host)
+    {
+        foreach (var allowed in PinnedModels.DownloadHosts)
+        {
+            if (string.Equals(host, allowed, StringComparison.OrdinalIgnoreCase) ||
+                (host.Length > allowed.Length &&
+                 host.EndsWith(allowed, StringComparison.OrdinalIgnoreCase) &&
+                 host[host.Length - allowed.Length - 1] == '.'))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void TryDelete(string path)
