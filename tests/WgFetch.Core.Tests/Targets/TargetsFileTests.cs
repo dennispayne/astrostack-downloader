@@ -202,7 +202,8 @@ public class TargetsFileTests
     public async Task LoadAsync_MalformedYaml_ThrowsTargetsFileExceptionWithPath()
     {
         string path = Path.Combine(AppContext.BaseDirectory, $"malformed-{Guid.NewGuid():N}.yaml");
-        await File.WriteAllTextAsync(path, "targets: [this is: not valid: yaml:::");
+        const string yaml = "targets: [this is: not valid: yaml:::";
+        await File.WriteAllTextAsync(path, yaml);
 
         try
         {
@@ -212,6 +213,7 @@ public class TargetsFileTests
             Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
             Assert.Matches(@"line \d+, column \d+", exception.Message);
             Assert.DoesNotContain('\n', exception.Message);
+            Assert.DoesNotContain("this is: not valid", exception.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -239,6 +241,7 @@ public class TargetsFileTests
     [InlineData("version: {}", "invalid-version")]
     [InlineData("targets: {}", "invalid-targets")]
     [InlineData("targets: [nina]", "invalid-target-entry")]
+    [InlineData("targets:\n  - id: AstroStack.NINA", "missing-name")]
     [InlineData("[]", "invalid-document-root")]
     public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml, string reasonCode)
     {
@@ -262,24 +265,18 @@ public class TargetsFileTests
     }
 
     [Fact]
-    public async Task LoadAsync_WithPathContainingControlCharacters_EscapesThemInMessage()
+    public void TargetsFileException_WithPathContainingControlCharacters_EscapesThemInMessage()
     {
-        string fileName = "malformed-with-\r\ncontrol-chars-" + Guid.NewGuid().ToString("N") + ".yaml";
-        string path = Path.Combine(AppContext.BaseDirectory, fileName);
-        await File.WriteAllTextAsync(path, "targets: [this is: not valid: yaml:::");
+        string path = Path.Combine(AppContext.BaseDirectory, "malformed.yaml") + "\r\ninjected";
 
-        try
-        {
-            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+        var exception = new TargetsFileException(
+            path,
+            new FormatException("Invalid targets document."),
+            TargetsFileException.InvalidDocumentReasonCode);
 
-            Assert.DoesNotContain('\n', exception.Message);
-            Assert.DoesNotContain('\r', exception.Message);
-            Assert.Contains("\\r\\n", exception.Message, StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.DoesNotContain('\n', exception.Message);
+        Assert.DoesNotContain('\r', exception.Message);
+        Assert.Contains("\\r\\n", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
