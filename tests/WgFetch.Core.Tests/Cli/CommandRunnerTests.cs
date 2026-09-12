@@ -427,6 +427,10 @@ public sealed class CommandRunnerTests
         Assert.Equal(ExitCode.UsageError, exit);
         Assert.False(File.Exists(temp.Combine("config.json")));
         Assert.NotEmpty(stderr.ToString());
+        if (name == "aiKey")
+        {
+            Assert.Contains("WGFETCH_AI_KEY", stderr.ToString(), StringComparison.Ordinal);
+        }
     }
 
     [Fact]

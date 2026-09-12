@@ -15,6 +15,18 @@ public static class ConfigSettings
     public static bool TrySet(WgFetchConfig config, string name, string value, out WgFetchConfig updated, out string? error)
     {
         var normalized = Normalize(name);
+        if (normalized is "aikey" or "searchkey" or "githubtoken")
+        {
+            updated = config;
+            error = normalized switch
+            {
+                "aikey" => "aiKey cannot be stored in the config file; supply it through WGFETCH_AI_KEY.",
+                "searchkey" => "searchKey cannot be stored in the config file; supply it through WGFETCH_SEARCH_KEY.",
+                _ => "githubToken cannot be stored in the config file; supply it through GITHUB_TOKEN.",
+            };
+            return false;
+        }
+
         if (normalized is "architecture" or "scope" or "aimode")
         {
             value = value.ToLowerInvariant();
@@ -42,9 +54,9 @@ public static class ConfigSettings
 
         return normalized switch
         {
-            "outputdirectory" => SetDirectory(config, value, "outputDirectory", static (c, v) => c with { OutputDirectory = v }, out updated, out error),
-            "cachedirectory" => SetDirectory(config, value, "cacheDirectory", static (c, v) => c with { CacheDirectory = v }, out updated, out error),
-            "modelsroot" => SetDirectory(config, value, "modelsRoot", static (c, v) => c with { ModelsRoot = v }, out updated, out error),
+            "outputdirectory" => SetValidatedPath(config, value, "outputDirectory", static (c, v) => c with { OutputDirectory = v }, out updated, out error),
+            "cachedirectory" => SetValidatedPath(config, value, "cacheDirectory", static (c, v) => c with { CacheDirectory = v }, out updated, out error),
+            "modelsroot" => SetValidatedPath(config, value, "modelsRoot", static (c, v) => c with { ModelsRoot = v }, out updated, out error),
             "architecture" => SetString(config, value, static (c, v) => c with { Architecture = v }, out updated, out error),
             "scope" => SetString(config, value, static (c, v) => c with { Scope = v }, out updated, out error),
             "aimode" => SetString(config, value, static (c, v) => c with { AiMode = v }, out updated, out error),
@@ -125,7 +137,7 @@ public static class ConfigSettings
         return true;
     }
 
-    private static bool SetDirectory(WgFetchConfig config, string value, string name, Func<WgFetchConfig, string, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
+    private static bool SetValidatedPath(WgFetchConfig config, string value, string name, Func<WgFetchConfig, string, WgFetchConfig> setter, out WgFetchConfig updated, out string? error)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
