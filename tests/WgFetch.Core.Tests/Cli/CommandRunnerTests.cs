@@ -4,8 +4,11 @@ using WgFetch.Core.Configuration;
 using WgFetch.Core.Inference;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
+using WgFetch.Core.Prereqs;
+using WgFetch.Core.Progress;
 using WgFetch.Core.Targets;
 using WgFetch.Core.Tests.Support;
+using YamlDotNet.RepresentationModel;
 
 namespace WgFetch.Core.Tests.Cli;
 
@@ -16,6 +19,8 @@ namespace WgFetch.Core.Tests.Cli;
 public sealed class CommandRunnerTests
 {
     private const string VendorUrl = "https://vendor.example.com/setup-3.1.0.exe";
+    private const string PrereqsPresentUnverified = "present (unverified)";
+    private const string PrereqsNotInstalled = "not installed";
 
     private static Recipe DemoRecipe() => new()
     {
@@ -95,6 +100,648 @@ public sealed class CommandRunnerTests
     }
 
     [Fact]
+    public async Task NoCommand_Interactive_ShowsSplashAndExistingHelp()
+    {
+        using var temp = new TempDirectory();
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("\u001b[38;2;99;102;241m", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_WithTargets_ShowsStatus()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("Targets acquired", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("·  1", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_WithStaleTargets_CountsThemAsAcquired()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets =
+                [
+                    new TargetEntry { Name = "nina", State = TargetState.Acquired },
+                    new TargetEntry { Name = "phd2", State = TargetState.Stale },
+                ],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("Targets acquired", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("·  2", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_RedactsSecretInSourcePath()
+    {
+        using var temp = new TempDirectory();
+        const string secret = "topsecret-token-12345";
+        var output = temp.Combine($"repo-{secret}");
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(output),
+            CancellationToken.None);
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            $$"""{"outputDirectory":"{{output.Replace("\\", "\\\\", StringComparison.Ordinal)}}","aiKey":"{{secret}}"}""",
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "dumb", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.DoesNotContain(secret, stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_ManifestPresentButAssetsMissing_ShowsNotInstalled()
+    {
+        // A bare install-manifest.json with none of the pinned model files on disk must never be
+        // reported as present: landing readiness comes from the hashing-free asset presence probe, not
+        // from the manifest's mere existence (a partial or wiped install is not ready).
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var modelsRoot = temp.Combine("models");
+        Directory.CreateDirectory(modelsRoot);
+        await File.WriteAllTextAsync(Path.Combine(modelsRoot, "install-manifest.json"), "{}", CancellationToken.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains(PrereqsNotInstalled, stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_PresentEmbeddingAssets_AreReportedAsUnverified()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var modelsRoot = temp.Combine("models");
+        WriteSparseEmbeddingAssets(modelsRoot);
+
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("installed", stdout.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task NoCommand_TruncatedEmbeddingAsset_IsNotReportedPresent()
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var modelsRoot = temp.Combine("models");
+        WriteSparseEmbeddingAssets(modelsRoot, firstAssetSizeOverride: FirstEmbeddingAssetSize() - 1);
+
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains(PrereqsNotInstalled, stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(PrereqsPresentUnverified, stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidSizedEmbeddingAssets))]
+    public async Task NoCommand_InvalidSizedEmbeddingAsset_IsNotReportedPresent(string sizeCase, long firstAssetSize)
+    {
+        using var temp = new TempDirectory();
+        await TargetsFile.SaveAsync(
+            new TargetsDocument
+            {
+                Targets = [new TargetEntry { Name = "nina", State = TargetState.Acquired }],
+            },
+            SourceLayout.TargetsPath(temp.Path),
+            CancellationToken.None);
+        var modelsRoot = temp.Combine("models");
+        WriteSparseEmbeddingAssets(modelsRoot, firstAssetSizeOverride: firstAssetSize);
+
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?>
+            {
+                ["WGFETCH_OUTPUT"] = temp.Path,
+                ["WGFETCH_MODELS"] = modelsRoot,
+            },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+        var rendered = stdout.ToString();
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.True(
+            rendered.Contains(PrereqsNotInstalled, StringComparison.Ordinal),
+            $"{sizeCase}: expected the landing view to report invalid-sized assets as not installed.");
+        Assert.False(
+            rendered.Contains(PrereqsPresentUnverified, StringComparison.Ordinal),
+            $"{sizeCase}: expected the landing view not to report invalid-sized assets as present.");
+    }
+
+    public static TheoryData<string, long> InvalidSizedEmbeddingAssets()
+    {
+        return new TheoryData<string, long>
+        {
+            { "zero-byte", 0 },
+            { "oversized", FirstEmbeddingAssetSize() + 1 },
+            { "substantially-oversized", FirstEmbeddingAssetSize() + (1024 * 1024) },
+        };
+    }
+
+    [Fact]
+    public async Task NoCommand_Json_WritesUsageErrorToStandardError()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--json"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Empty(stdout.ToString());
+        Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("resolve  •", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Plain_ShowsColorlessSplash()
+    {
+        using var temp = new TempDirectory();
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("╭", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_InvalidSettings_StillEmitsHeaderBeforeError()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(configPath, """{"outputDirectory":"bad\u0000path"}""", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.StartsWith("wgfetch", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("invalid configuration", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Redirected_ShowsExistingUsageErrorOnly()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { OutputRedirected = true, Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Empty(stdout.ToString());
+        Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UsageError_SanitizesParserSuppliedText()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr);
+
+        var exit = await runner.RunAsync(["bad\u001b[31m"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Empty(stdout.ToString());
+        Assert.DoesNotContain("\u001b", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("bad?[31m", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    private static void WriteSparseEmbeddingAssets(string modelsRoot, long? firstAssetSizeOverride = null)
+    {
+        // The no-command prerequisite probe is intentionally metadata-only for startup latency; these
+        // sparse files exercise its size checks without hashing or writing model-sized byte content.
+        for (var i = 0; i < PinnedModels.Embedding.Assets.Count; i++)
+        {
+            var asset = PinnedModels.Embedding.Assets[i];
+            var path = Path.Combine(PrereqInstaller.ModelDirectory(modelsRoot, PinnedModels.Embedding), asset.RelativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (asset.SizeBytes is not { } size)
+            {
+                throw new InvalidOperationException($"The sparse fixture requires a pinned size for {asset.RelativePath}.");
+            }
+
+            if (firstAssetSizeOverride.HasValue && i == 0)
+            {
+                size = firstAssetSizeOverride.Value;
+            }
+
+            using var file = File.Create(path);
+            file.SetLength(size);
+        }
+    }
+
+    private static long FirstEmbeddingAssetSize()
+    {
+        if (PinnedModels.Embedding.Assets[0].SizeBytes is { } size)
+        {
+            if (size <= 0)
+            {
+                throw new InvalidOperationException("The first embedding asset must be non-empty for invalid-size regressions.");
+            }
+
+            return size;
+        }
+
+        throw new InvalidOperationException("The first embedding asset must have a pinned size for invalid-size regressions.");
+    }
+
+    [Fact]
+    public async Task NoCommand_WithPositionalAfterOptionTerminator_ShowsExistingUsageErrorOnly()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--", "stray"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Empty(stdout.ToString());
+        Assert.Contains("no command given", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_MalformedTargets_ShowsLandingAndUsageError()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(temp.Path, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_SchemaInvalidTargets_ShowsLandingAndUsageError()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(
+            Path.Combine(temp.Path, "targets.yaml"),
+            """
+            ? [invalid]
+            : value
+            targets: []
+            """,
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_TargetsPathIsDirectory_FailsClosedInsteadOfFirstRun()
+    {
+        using var temp = new TempDirectory();
+
+        // A directory named targets.yaml is not a missing file: File.Exists(path) reports false for
+        // it (same as a genuinely absent file), so the landing view must not rely on that check alone
+        // to decide "first run" — it must attempt to read the path and fail closed on what it finds.
+        Directory.CreateDirectory(Path.Combine(temp.Path, "targets.yaml"));
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync([], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_OutputPathIsFile_FailsClosedInsteadOfFirstRun()
+    {
+        using var temp = new TempDirectory();
+        var output = temp.Combine("source");
+        await File.WriteAllTextAsync(output, "not a directory", CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = output },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--plain"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("unable to read targets.yaml", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Get started", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("unable to read targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("status", null, "targets: [\n")]
+    [InlineData("remove", "nina", "targets: [\n")]
+    [InlineData("status", null, "version: 1\nversion: 2\n")]
+    [InlineData("status", null, "targets:\n  - name: nina\n    name: phd2\n")]
+    public async Task Command_MalformedTargets_FailsClosedWithUsageError(string command, string? argument, string yaml)
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(Path.Combine(temp.Path, "targets.yaml"), yaml, CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+        });
+
+        string[] args = argument is null ? [command] : [command, argument];
+        var exit = await runner.RunAsync(args, CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("failed to parse targets file", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("targets.yaml", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("re-add your targets", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Command_MalformedFromFile_UsesInputFileGuidance()
+    {
+        using var temp = new TempDirectory();
+        var inputPath = temp.Combine("apps.yaml");
+        await File.WriteAllTextAsync(inputPath, "targets: [\n", CancellationToken.None);
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(new StringWriter(), stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Combine("source") },
+        });
+
+        var exit = await runner.RunAsync(["add", "--from-file", inputPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("input file", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("re-add your targets", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Command_SchemaInvalidTargets_FailsClosedWithUsageError()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(
+            Path.Combine(temp.Path, "targets.yaml"),
+            """
+            ? [invalid]
+            : value
+            targets: []
+            """,
+            CancellationToken.None);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(stdout, stderr, new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+        });
+
+        var exit = await runner.RunAsync(["status"], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("failed to parse targets file", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Command_TargetsError_RedactsConfiguredSecrets()
+    {
+        using var temp = new TempDirectory();
+        var secret = "topsecret-token-12345";
+        var output = temp.Combine($"repo-{secret}");
+        Directory.CreateDirectory(output);
+        await File.WriteAllTextAsync(Path.Combine(output, "targets.yaml"), "targets: [\n", CancellationToken.None);
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            $$"""{"outputDirectory":"{{output.Replace("\\", "\\\\", StringComparison.Ordinal)}}","aiKey":"{{secret}}"}""",
+            CancellationToken.None);
+
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(new StringWriter(), stderr, new RunnerDependencies());
+
+        var exit = await runner.RunAsync(["status", "--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.DoesNotContain(secret, stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("[REDACTED]", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_Cancelled_ReturnsCancelledExitCode()
+    {
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync([], new CancellationToken(canceled: true));
+
+        Assert.Equal(ExitCode.Cancelled, exit);
+        Assert.Contains("cancelled", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_UnreadableConfig_PreservesLandingAndUsageError()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(configPath, "{}", CancellationToken.None);
+        await using var lockedConfig = new FileStream(
+            configPath,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None);
+        var stdout = new StringWriter();
+        var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
+        {
+            Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task NoCommand_InvalidConfigPathValue_ReturnsUsageErrorWithoutCrash()
+    {
+        using var temp = new TempDirectory();
+        var configPath = temp.Combine("config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            """{ "outputDirectory": "bad\u0000path" }""",
+            CancellationToken.None);
+        var stderr = new StringWriter();
+        var runner = new CommandRunner(new StringWriter(), stderr, new RunnerDependencies
+        {
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+        });
+
+        var exit = await runner.RunAsync(["--config", configPath], CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("invalid configuration or option value", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task UnknownCommand_IsAUsageError()
     {
         var (runner, _, stderr) = CreateRunner();
@@ -142,6 +789,32 @@ public sealed class CommandRunnerTests
         Assert.Contains("nina", statusOut.ToString(), StringComparison.Ordinal);
         Assert.Contains("listed", statusOut.ToString(), StringComparison.Ordinal);
         Assert.Contains("nina", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Add_OversizedTargetsFile_ReturnsUsageErrorInsteadOfCrashing()
+    {
+        using var temp = new TempDirectory();
+        var path = SourceLayout.TargetsPath(temp.Path);
+
+        // Bypasses TargetsFile.SaveAsync's own size guard so the setup file, just under the limit,
+        // still loads cleanly; adding a new entry then pushes the re-rendered file over MaxFileBytes.
+        var seed = new TargetsDocument
+        {
+            ExtraFields = new Dictionary<string, YamlNode>(StringComparer.Ordinal)
+            {
+                ["huge"] = new YamlScalarNode(new string('x', (8 * 1024 * 1024) - 16)),
+            },
+        };
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, TargetsFile.Render(seed), CancellationToken.None);
+
+        var (runner, _, stderr) = CreateRunner();
+
+        var exit = await runner.RunAsync(Acq(temp, "add", "nina"), CancellationToken.None);
+
+        Assert.Equal(ExitCode.UsageError, exit);
+        Assert.Contains("failed to parse targets file", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

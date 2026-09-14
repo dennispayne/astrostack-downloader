@@ -1,4 +1,5 @@
 using System.Globalization;
+using WgFetch.Core.Abstractions;
 using YamlDotNet.Core;
 using YamlDotNet.Core.Events;
 using YamlDotNet.RepresentationModel;
@@ -14,6 +15,8 @@ namespace WgFetch.Core.Targets;
 /// </summary>
 public static class TargetsFile
 {
+    private const int MaxFileBytes = 8 * 1024 * 1024;
+
     private const string VersionKey = "version";
     private const string TargetsKey = "targets";
     private const string InvalidVersionReasonCode = "invalid-version";
@@ -56,7 +59,16 @@ public static class TargetsFile
             return new TargetsDocument();
         }
 
-        string text = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        string text;
+        try
+        {
+            text = await RegularFileText.ReadAllTextAsync(path, MaxFileBytes, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new TargetsFileException(path, exception, TargetsFileException.InvalidDocumentReasonCode);
+        }
+
         return Parse(text, path);
     }
 
@@ -370,6 +382,15 @@ public static class TargetsFile
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         string text = Render(document);
+        try
+        {
+            SafeUserFile.ThrowIfPathContainsNul(path);
+            SafeUserFile.GetUtf8ByteCountWithinLimit(text, MaxFileBytes, "targets.yaml");
+        }
+        catch (IOException exception)
+        {
+            throw new TargetsFileException(path, exception, TargetsFileException.InvalidDocumentReasonCode);
+        }
 
         string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(directory))

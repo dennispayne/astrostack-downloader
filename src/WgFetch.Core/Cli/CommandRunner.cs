@@ -35,6 +35,9 @@ public sealed record RunnerDependencies
     /// <summary>Overrides the process environment so terminal detection is testable.</summary>
     public IReadOnlyDictionary<string, string?>? Environment { get; init; }
 
+    /// <summary>Overrides terminal capability detection so presentation remains hermetically testable.</summary>
+    public TerminalEnvironment? TerminalEnvironment { get; init; }
+
     /// <summary>Overrides interactive terminal I/O so embedded callers can supply their own console.</summary>
     public IAnsiConsole? InteractiveConsole { get; init; }
 
@@ -71,6 +74,7 @@ public sealed partial class CommandRunner
     private RedactingConsoleLoggerProvider? _loggerProvider;
     private IProgressRenderer _progress = new PlainProgressRenderer(TextWriter.Null);
     private bool _humanToStderr;
+    private IReadOnlyList<string> _activeSecrets = Array.Empty<string>();
 
     public CommandRunner(TextWriter stdout, TextWriter stderr, RunnerDependencies? dependencies = null)
     {
@@ -86,8 +90,29 @@ public sealed partial class CommandRunner
     public async Task<ExitCode> RunAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(args);
+        _activeSecrets = Array.Empty<string>();
 
         var parsed = CommandLineParser.Parse(args);
+
+        if (parsed.NoCommandGiven &&
+            parsed.Positional.Count == 0 &&
+            parsed.Errors.All(error => error == "no command given"))
+        {
+            try
+            {
+                return await ShowLandingAsync(parsed, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                _stderr.WriteLine("wgfetch: cancelled.");
+                return ExitCode.Cancelled;
+            }
+            finally
+            {
+                _stdout.Flush();
+                _stderr.Flush();
+            }
+        }
 
         // --help, --version and argument errors must be fast and must never load a model.
         if (parsed.HelpRequested)
@@ -107,7 +132,8 @@ public sealed partial class CommandRunner
             var parseErrorSecrets = ResolveCliAndEnvironmentSecrets(parsed);
             foreach (var error in parsed.Errors)
             {
-                _stderr.WriteLine($"wgfetch: {SecretRedactor.Redact(error, parseErrorSecrets)}");
+                var message = SecretRedactor.Redact(error, parseErrorSecrets);
+                _stderr.WriteLine($"wgfetch: {TerminalTextSanitizer.Sanitize(message)}");
             }
 
             _stderr.WriteLine("Run 'wgfetch --help' for usage.");
@@ -120,6 +146,7 @@ public sealed partial class CommandRunner
         }
         catch (TargetsFileException ex)
         {
+            var message = TerminalTextSanitizer.Sanitize(SecretRedactor.Redact(ex.Message, _activeSecrets));
             if (_events is not null)
             {
                 Emit(new JsonEvent
@@ -127,13 +154,17 @@ public sealed partial class CommandRunner
                     Event = "error",
                     Stage = "targets",
                     Status = "failed",
-                    Message = ex.Message,
+                    Message = message,
                     ExitCode = (int)ExitCode.UsageError,
                 });
             }
             else
             {
-                _stderr.WriteLine($"wgfetch: {ex.Message}");
+                _stderr.WriteLine($"wgfetch: {message}");
+                if (parsed.Value("--from-file") is not null)
+                {
+                    _stderr.WriteLine("Fix the malformed input file before retrying the command.");
+                }
             }
 
             return ExitCode.UsageError;
@@ -209,6 +240,7 @@ public sealed partial class CommandRunner
         }
 
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
+        _activeSecrets = settings.Secrets;
 
         var terminal = TerminalCapability.Detect(BuildTerminalEnvironment(settings));
         _loggerProvider = new RedactingConsoleLoggerProvider(_stderr, settings.LogLevel, settings.Secrets);
@@ -248,6 +280,139 @@ public sealed partial class CommandRunner
         }
 
         return exitCode;
+    }
+
+    private async Task<ExitCode> ShowLandingAsync(
+        ParsedCommandLine parsed,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (parsed.Has("--json") || IsOutputRedirected())
+        {
+            WriteUsageErrors(parsed);
+            return ExitCode.UsageError;
+        }
+
+        _stdout.WriteLine("wgfetch");
+        _stdout.Flush();
+
+        WgFetchConfig config;
+        try
+        {
+            config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;
+            var message = SecretRedactor.Redact(
+                $"unable to read config file '{path}': {exception.Message}",
+                ResolveCliAndEnvironmentSecrets(parsed));
+            _stderr.WriteLine($"wgfetch: {TerminalTextSanitizer.Sanitize(message)}");
+            config = new WgFetchConfig();
+        }
+
+        RunSettings settings;
+        try
+        {
+            settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            var message = SecretRedactor.Redact(
+                $"invalid configuration or option value: {exception.Message}",
+                ResolveCliAndEnvironmentSecrets(parsed));
+            _stderr.WriteLine($"wgfetch: {TerminalTextSanitizer.Sanitize(message)}");
+            _stdout.Write(CommandLineParser.RenderHelp());
+            return ExitCode.UsageError;
+        }
+
+        var terminal = TerminalCapability.Detect(BuildTerminalEnvironment(settings));
+        var displayOutputDirectory = SecretRedactor.Redact(settings.OutputDirectory, settings.Secrets);
+
+        TargetsDocument? targets = null;
+        string? targetsError = null;
+        var targetsPath = TargetsPath(settings);
+        try
+        {
+            if (Directory.Exists(targetsPath) || File.Exists(settings.OutputDirectory))
+            {
+                targetsError = "unable to read targets.yaml";
+                _stderr.WriteLine($"wgfetch: {targetsError}.");
+            }
+            else
+            {
+                var document = await TargetsFile.LoadAsync(targetsPath, cancellationToken).ConfigureAwait(false);
+                if (File.Exists(targetsPath))
+                {
+                    targets = document;
+                }
+            }
+        }
+        catch (TargetsFileException)
+        {
+            targetsError = "unable to read targets.yaml";
+            _stderr.WriteLine($"wgfetch: {targetsError}.");
+        }
+
+        IAnsiConsole? console = null;
+        if (terminal == TerminalMode.Interactive)
+        {
+            console = AnsiConsole.Create(new AnsiConsoleSettings
+            {
+                Ansi = AnsiSupport.Yes,
+                ColorSystem = ColorSystemSupport.TrueColor,
+                Out = new AnsiConsoleOutput(_stdout),
+            });
+            console.Write(SplashScreen.CreateInteractiveHeader());
+            console.WriteLine();
+        }
+        else
+        {
+            SplashScreen.WritePlainHeader(_stdout, includeTitle: false);
+        }
+
+        var prerequisitesPresent = (targets is not null || targetsError is not null) &&
+            PrereqInstaller.QuickReady(settings.ModelsRoot, [PinnedModels.Embedding]);
+        var now = _dependencies.TimeProvider.GetUtcNow();
+        if (console is not null)
+        {
+            console.Write(SplashScreen.CreateStatus(
+                targets,
+                displayOutputDirectory,
+                prerequisitesPresent,
+                now,
+                targetsError));
+        }
+        else
+        {
+            SplashScreen.WriteStatus(
+                _stdout,
+                targets,
+                displayOutputDirectory,
+                prerequisitesPresent,
+                now,
+                targetsError);
+        }
+
+        _stdout.WriteLine();
+        _stdout.Write(CommandLineParser.RenderHelp());
+        return ExitCode.UsageError;
+    }
+
+    private bool IsOutputRedirected() =>
+        _dependencies.TerminalEnvironment?.OutputRedirected ?? Console.IsOutputRedirected;
+
+    private void WriteUsageErrors(ParsedCommandLine parsed)
+    {
+        var secrets = ResolveCliAndEnvironmentSecrets(parsed);
+        foreach (var error in parsed.Errors)
+        {
+            _stderr.WriteLine($"wgfetch: {TerminalTextSanitizer.Sanitize(SecretRedactor.Redact(error, secrets))}");
+        }
+
+        _stderr.WriteLine("Run 'wgfetch --help' for usage.");
     }
 
     /// <summary>
@@ -314,6 +479,16 @@ public sealed partial class CommandRunner
 
     private TerminalEnvironment BuildTerminalEnvironment(bool plain, bool noColor, bool json)
     {
+        if (_dependencies.TerminalEnvironment is { } environment)
+        {
+            return environment with
+            {
+                PlainRequested = plain,
+                NoColorRequested = noColor,
+                JsonRequested = json,
+            };
+        }
+
         if (_dependencies.Environment is null)
         {
             return TerminalEnvironment.FromProcess(plain, noColor, json);

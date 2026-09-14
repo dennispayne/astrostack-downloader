@@ -167,6 +167,55 @@ public sealed class PrereqInstaller
         ResolveConfinedPath(modelsRoot, model.Id, $"model id '{model.Id}'");
 
     /// <summary>
+    /// Checks that every requested pinned asset exists at its expected size without hashing it.
+    /// This is a fast presence probe, not verification; callers must describe the result as
+    /// unverified and use <c>prereqs status</c> for digest validation.
+    /// </summary>
+    public static bool QuickReady(string modelsRoot, IReadOnlyList<PinnedModel> models)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelsRoot);
+        ArgumentNullException.ThrowIfNull(models);
+
+        if (models.Count == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (var model in models)
+            {
+                if (model.Assets.Count == 0)
+                {
+                    return false;
+                }
+
+                var directory = ModelDirectory(modelsRoot, model);
+                foreach (var asset in model.Assets)
+                {
+                    if (!asset.IsPinned)
+                    {
+                        return false;
+                    }
+
+                    var info = new FileInfo(Path.Combine(directory, asset.RelativePath));
+                    if (!info.Exists || (asset.SizeBytes is { } expected && info.Length != expected))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or InvalidOperationException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Combines <paramref name="root"/> with <paramref name="relativeSegment"/> and verifies the
     /// normalized result stays under <paramref name="root"/>. Pinned model data can come from a
     /// caller-supplied list (see the <see cref="StatusAsync(string, IReadOnlyList{PinnedModel}?, CancellationToken)"/>
