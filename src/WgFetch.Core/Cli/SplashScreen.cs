@@ -48,36 +48,50 @@ public static class SplashScreen
         writer.WriteLine();
     }
 
+    /// <summary>
+    /// Lowercase block-pixel glyphs for "wgfetch", six rows tall so ascenders (f, t, h) and the
+    /// descender (g) read correctly; every other letter leaves the unused rows blank. Each letter is
+    /// 5 columns wide and letters are joined with a single blank column, matching ordinary
+    /// letter-spacing in a monospace font.
+    /// </summary>
+    private static readonly string[] LogoRows = BuildLogoRows();
+
+    private static readonly string[] GradientPalette = ["#67e8f9", "#60a5fa", "#818cf8", "#8b5cf6", "#a78bfa"];
+
     internal static IRenderable CreateInteractiveHeader(int? terminalWidth = null)
     {
-        const string backslash = "\\";
-        if (terminalWidth is > 0 and < 52)
+        if (terminalWidth is > 0 and < 45)
         {
-            return new Panel(new Markup(
-                "[#67e8f9]█▄[/] [#60a5fa]WGFETCH[/] [#8b5cf6]▄█[/]\n" +
-                "[#67e8f9]resolve[/] [#60a5fa]• verify[/] [#a78bfa]• download[/]"))
-                .Border(BoxBorder.Rounded)
-                .BorderColor(Color.FromHex("#8b5cf6"))
-                .Padding(1, 0);
+            return new Markup(
+                "[#67e8f9]wgfetch[/]\n" +
+                "[#60a5fa]resolve[/]  [#818cf8]•[/]  [#8b5cf6]verify[/]  [#a78bfa]•[/]  [#67e8f9]download[/]");
         }
 
-        var art = new Markup(
-            "[#67e8f9]·[/]       [#60a5fa]✦[/]             [#8b5cf6]·[/]\n" +
-            "              [#67e8f9]/" + backslash + "[/]\n" +
-            "             [#60a5fa]/  " + backslash + "[/]       [#a78bfa]⋆[/]\n" +
-            "        [#818cf8]o===/____" + backslash + "[/]\n" +
-            "            [#8b5cf6](____)[/]\n\n" +
-            "[#67e8f9]█   █  ███  █████ █████ █████  ███  █   █[/]\n" +
-            "[#60a5fa]█   █ █     █     █       █   █     █   █[/]\n" +
-            "[#818cf8]█ █ █ █ ███ ████  ████    █   █     █████[/]\n" +
-            "[#8b5cf6]██ ██ █   █ █     █       █   █     █   █[/]\n" +
-            "[#a78bfa]█   █  ███  █     █████   █    ███  █   █[/]\n\n" +
-            "[#67e8f9]       resolve[/] [#60a5fa]•[/] [#818cf8]verify[/] [#8b5cf6]•[/] [#a78bfa]download[/]");
+        var logo = string.Join(
+            '\n',
+            LogoRows.Select((row, index) => $"[{GradientPalette[index % GradientPalette.Length]}]{row}[/]"));
 
-        return new Panel(art)
-            .Border(BoxBorder.Rounded)
-            .BorderColor(Color.FromHex("#8b5cf6"))
-            .Padding(2, 1);
+        return new Markup(
+            logo + "\n\n" +
+            "[#67e8f9]resolve[/]  [#60a5fa]•[/]  [#818cf8]verify[/]  [#8b5cf6]•[/]  [#a78bfa]download[/]");
+    }
+
+    private static string[] BuildLogoRows()
+    {
+        // Each letter is a 5-column-wide, 6-row-tall glyph (row 0 is ascender space, rows 1-4 are the
+        // x-height body, row 5 is descender space), so the whole word lines up on a shared baseline.
+        string[] w = ["     ", "█   █", "█ █ █", "██ ██", "█   █", "     "];
+        string[] g = ["     ", " ███ ", "█   █", " ████", "    █", " ███ "];
+        string[] f = ["  ██ ", " █   ", "████ ", " █   ", " █   ", "     "];
+        string[] e = ["     ", " ███ ", "█████", "█    ", " ███ ", "     "];
+        string[] t = [" █   ", "████ ", " █   ", " █   ", "  ██ ", "     "];
+        string[] c = ["     ", " ███ ", "█    ", "█    ", " ███ ", "     "];
+        string[] h = ["█    ", "█    ", "████ ", "█   █", "█   █", "     "];
+
+        var letters = new[] { w, g, f, e, t, c, h };
+        return Enumerable.Range(0, 6)
+            .Select(row => string.Join(" ", letters.Select(letter => letter[row])))
+            .ToArray();
     }
 
     internal static IRenderable CreateStatus(

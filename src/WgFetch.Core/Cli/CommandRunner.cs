@@ -493,7 +493,7 @@ public sealed partial class CommandRunner
                 PlainRequested = plain,
                 NoColorRequested = noColor,
                 JsonRequested = json,
-                WindowWidth = TerminalEnvironment.TryGetWindowWidth(),
+                WindowWidth = environment.WindowWidth ?? TerminalEnvironment.TryGetWindowWidth(),
             };
         }
 

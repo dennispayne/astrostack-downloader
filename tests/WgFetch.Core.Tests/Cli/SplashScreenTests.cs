@@ -123,7 +123,7 @@ public sealed class SplashScreenTests
     }
 
     [Fact]
-    public void Interactive_UsesGradientColorsAndRoundedBorder()
+    public void Interactive_UsesGradientColorsWithNoOutlineOrAstroArt()
     {
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -135,16 +135,19 @@ public sealed class SplashScreenTests
 
         console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesPresent: false));
 
-        Assert.Contains("╭", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("resolve", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("download", output.ToString(), StringComparison.Ordinal);
+        var rendered = output.ToString();
+        Assert.DoesNotContain("╭", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("│", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("o===", rendered, StringComparison.Ordinal);
+        Assert.Contains("resolve", rendered, StringComparison.Ordinal);
+        Assert.Contains("download", rendered, StringComparison.Ordinal);
         Assert.True(
-            output.ToString().Split("\u001b[38;2;", StringSplitOptions.None).Length >= 6,
+            rendered.Split("\u001b[38;2;", StringSplitOptions.None).Length >= 6,
             "Expected several true-color transitions in the gradient.");
     }
 
     [Fact]
-    public void Interactive_UsesBlockLogoWhenTerminalHasRoom()
+    public void Interactive_UsesLowercaseBlockLogoWhenTerminalHasRoom()
     {
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -162,12 +165,13 @@ public sealed class SplashScreenTests
             terminalWidth: 80));
 
         var rendered = output.ToString();
-        Assert.True(rendered.Count(character => character == '█') >= 80);
+        Assert.True(rendered.Count(character => character == '█') >= 40);
         Assert.Contains('•', rendered);
+        Assert.DoesNotContain("WGFETCH", rendered, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Interactive_UsesCompactBlockBadgeOnNarrowTerminal()
+    public void Interactive_UsesPlainWordmarkOnNarrowTerminal()
     {
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -185,8 +189,8 @@ public sealed class SplashScreenTests
             terminalWidth: 40));
 
         var rendered = output.ToString();
-        Assert.Contains("█▄ WGFETCH ▄█", rendered, StringComparison.Ordinal);
-        Assert.DoesNotContain("█   █  ███", rendered, StringComparison.Ordinal);
+        Assert.Contains("wgfetch", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain('█', rendered);
     }
 
     [Fact]

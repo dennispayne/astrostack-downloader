@@ -113,7 +113,7 @@ public sealed class CommandRunnerTests
         var exit = await runner.RunAsync([], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.True(stdout.ToString().Count(character => character == '█') >= 80);
+        Assert.True(stdout.ToString().Count(character => character == '█') >= 40);
         Assert.Contains("resolve", stdout.ToString(), StringComparison.Ordinal);
         Assert.Contains("download", stdout.ToString(), StringComparison.Ordinal);
         Assert.True(stdout.ToString().Split("\u001b[38;2;", StringSplitOptions.None).Length >= 6);
@@ -712,14 +712,20 @@ public sealed class CommandRunnerTests
         var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
         {
             Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
-            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false, WindowWidth = 80 },
         });
 
         var exit = await runner.RunAsync(["--config", configPath], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
-        Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
+        // Each tagline word is wrapped in its own gradient-colored markup span, so ANSI reset/color
+        // codes are interspersed between words — assert on the words themselves rather than the
+        // exact contiguous phrase (see SplashScreenTests for the same technique).
+        var output = stdout.ToString();
+        Assert.Contains("resolve", output, StringComparison.Ordinal);
+        Assert.Contains("verify", output, StringComparison.Ordinal);
+        Assert.Contains("download", output, StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", output, StringComparison.Ordinal);
     }
 
     [Fact]
