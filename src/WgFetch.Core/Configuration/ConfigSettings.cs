@@ -18,6 +18,36 @@ public static class ConfigSettings
         "searchEndpoint", "searchKey", "githubToken", "logLevel", "parallelDownloads", "maxPerHost", "plain",
     ];
 
+    /// <summary>Path-valued settings, so the interactive TUI can offer a directory picker instead of free text.</summary>
+    public static IReadOnlyCollection<string> PathNames { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "outputDirectory", "cacheDirectory", "modelsRoot",
+    };
+
+    /// <summary>Short, human-readable explanations shown alongside each setting in the interactive TUI.</summary>
+    public static IReadOnlyDictionary<string, string> Hints { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["outputDirectory"] = "Where acquired installers and targets.yaml are written.",
+        ["cacheDirectory"] = "Download cache reused across runs to avoid re-fetching installers.",
+        ["modelsRoot"] = "Root folder holding pinned embedding/LLM model files.",
+        ["threshold"] = "Minimum tier-1 confidence (0-1) to accept a match automatically.",
+        ["architecture"] = "Installer architecture to prefer: x64, x86, or arm64.",
+        ["scope"] = "Install scope for acquired packages: machine (all users) or user.",
+        ["keepVersions"] = "How many prior installer versions to retain before pruning.",
+        ["aiMode"] = "Where inference runs: local (on-device), remote (API), or auto.",
+        ["aiEndpoint"] = "OpenAI-compatible endpoint used when aiMode is remote or auto.",
+        ["aiModel"] = "Remote model name requested at aiEndpoint.",
+        ["aiKey"] = "API key for the remote AI endpoint. Stored, always redacted on screen.",
+        ["searchProvider"] = "Web search backend: duckduckgo, brave, startpage, mojeek, searxng, google, bing, or none.",
+        ["searchEndpoint"] = "Self-hosted search endpoint, used when searchProvider needs one.",
+        ["searchKey"] = "API key for the search provider. Stored, always redacted on screen.",
+        ["githubToken"] = "GitHub token used for higher API rate limits. Stored, always redacted on screen.",
+        ["logLevel"] = "Minimum severity written to logs: trace, debug, info, warn, error, or none.",
+        ["parallelDownloads"] = "Maximum concurrent downloads overall (1-16).",
+        ["maxPerHost"] = "Maximum concurrent downloads to a single host (1-8).",
+        ["plain"] = "Force plain, colourless, non-animated output (true/false).",
+    };
+
     public static bool TrySet(WgFetchConfig config, string name, string value, out WgFetchConfig updated, out string? error)
     {
         var normalized = Normalize(name);

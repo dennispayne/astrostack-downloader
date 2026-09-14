@@ -23,6 +23,11 @@ public sealed class CommandRunnerInteractiveConfigTests
     private static readonly int ModelPrerequisitesIndex = SettingNames.Count;
     private static readonly int ExitIndex = SettingNames.Count + 1;
 
+    // The directory picker's starting directory is always a fresh/empty temp directory in these
+    // tests, so its choices are deterministically [".. parent directory", "[Use this directory]",
+    // "[Enter path manually]", "[Cancel]"] with no real subdirectories in between.
+    private const int PathPickerEnterManuallyIndex = 2;
+
     private static PinnedModel TestModel(string id, string url, byte[] bytes) =>
         new(id, id, "test/repository", "revision", IsLanguageModel: false,
         [new ModelAsset("model.bin", url, bytes.Length, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)))]);
@@ -71,6 +76,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         var configPath = temp.Combine("config.json");
         var console = CreateInteractiveConsole();
         SelectByIndex(console, OutputDirectoryIndex);
+        SelectByIndex(console, PathPickerEnterManuallyIndex);
         console.Input.PushTextWithEnter(temp.Combine("source"));
         SelectByIndex(console, ExitIndex);
         var (runner, _, stderr) = CreateInteractiveRunner(console);
@@ -115,6 +121,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         SelectByIndex(console, AiKeyIndex);
         console.Input.PushTextWithEnter(secret);
         SelectByIndex(console, ModelsRootIndex);
+        SelectByIndex(console, PathPickerEnterManuallyIndex);
         console.Input.PushTextWithEnter(secretPath);
         SelectByIndex(console, ExitIndex);
         var (runner, _, _) = CreateInteractiveRunner(console);
@@ -124,7 +131,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         Assert.Equal(ExitCode.Success, exit);
         Assert.Contains("Cannot create directory", console.Output, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(
-            console.Output.Split(Environment.NewLine),
+            console.Output.Split('\n'),
             line => line.Contains("Cannot create directory", StringComparison.OrdinalIgnoreCase)
                 && line.Contains(secret, StringComparison.Ordinal));
         Assert.Contains("REDACTED", console.Output, StringComparison.OrdinalIgnoreCase);
@@ -270,6 +277,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         var console = CreateInteractiveConsole();
         SelectByIndex(console, ModelPrerequisitesIndex);
         SelectByIndex(console, 2); // Change models root follows install-one and install-all.
+        SelectByIndex(console, PathPickerEnterManuallyIndex);
         console.Input.PushTextWithEnter(newRoot);
         SelectByIndex(console, ExitIndex);
         var (runner, _, _) = CreateInteractiveRunner(console, models: [model]);
@@ -295,6 +303,7 @@ public sealed class CommandRunnerInteractiveConfigTests
         var console = CreateInteractiveConsole();
         SelectByIndex(console, ModelPrerequisitesIndex);
         SelectByIndex(console, 1); // Change models root follows install-all when no models are configured.
+        SelectByIndex(console, PathPickerEnterManuallyIndex);
         console.Input.PushTextWithEnter(temp.Combine("models"));
         SelectByIndex(console, ExitIndex);
         var environment = new Dictionary<string, string?>

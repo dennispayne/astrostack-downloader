@@ -12,6 +12,10 @@ public sealed partial class CommandRunner
     private const string InstallAllModelsChoice = "Install all pinned models";
     private const string ChangeModelsRootChoice = "Change models root";
     private const string BackChoice = "Back";
+    private const string UseThisDirectoryChoice = "[Use this directory]";
+    private const string EnterPathManuallyChoice = "[Enter path manually]";
+    private const string ParentDirectoryChoice = "[.. parent directory]";
+    private const string CancelPathChoice = "[Cancel]";
 
     private static readonly HashSet<string> SecretSettingNames = new(StringComparer.Ordinal)
     {
@@ -33,6 +37,9 @@ public sealed partial class CommandRunner
         }
 
         var path = configuredPath ?? ConfigFile.DefaultPath;
+        var fallbackDirectory = Path.GetDirectoryName(path) is { Length: > 0 } configDirectory
+            ? configDirectory
+            : Environment.CurrentDirectory;
         var console = _dependencies.InteractiveConsole ?? CreateInteractiveConsole(_stdout, plainRendering);
         var current = config;
         while (true)
@@ -43,6 +50,7 @@ public sealed partial class CommandRunner
             var choice = console.Prompt(
                 new SelectionPrompt<string>()
                     .Title("Select a setting to edit, or manage model prerequisites")
+                    .UseConverter(FormatMenuChoice)
                     .AddChoices([.. ConfigSettings.Names, ModelPrerequisitesChoice, ExitChoice]));
             if (choice == ExitChoice)
             {
@@ -61,19 +69,31 @@ public sealed partial class CommandRunner
                 continue;
             }
 
-            var prompt = new TextPrompt<string>($"New value for {choice} (leave blank to cancel)").AllowEmpty();
-            if (SecretSettingNames.Contains(choice))
+            string? value;
+            if (ConfigSettings.PathNames.Contains(choice))
             {
-                prompt.Secret();
+                value = PickDirectory(console, GetExistingPathValue(current, choice, fallbackDirectory), currentRedactionSecrets);
+                if (value is null)
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                var prompt = new TextPrompt<string>($"New value for {choice} (leave blank to cancel)").AllowEmpty();
+                if (SecretSettingNames.Contains(choice))
+                {
+                    prompt.Secret();
+                }
+
+                value = console.Prompt(prompt);
+                if (string.IsNullOrEmpty(value))
+                {
+                    continue;
+                }
             }
 
-            var value = console.Prompt(prompt);
-            if (string.IsNullOrEmpty(value))
-            {
-                continue;
-            }
-
-            if (choice is "outputDirectory" or "cacheDirectory" or "modelsRoot")
+            if (ConfigSettings.PathNames.Contains(choice))
             {
                 try
                 {
@@ -151,12 +171,144 @@ public sealed partial class CommandRunner
         var table = new Table().Border(TableBorder.Rounded).Title("wgfetch configuration");
         table.AddColumn("Setting");
         table.AddColumn("Persisted value");
+        table.AddColumn("What it does");
         foreach (var setting in ConfigSettings.GetRedactedValues(config, redactionSecrets))
         {
-            table.AddRow(setting.Name, setting.Value is null ? "-" : Markup.Escape(setting.Value));
+            var hint = ConfigSettings.Hints.TryGetValue(setting.Name, out var text) ? text : string.Empty;
+            table.AddRow(setting.Name, setting.Value is null ? "-" : Markup.Escape(setting.Value), Markup.Escape(hint));
         }
 
         console.Write(table);
+    }
+
+    /// <summary>Appends each setting's hint to its menu entry so the picker doubles as inline help.</summary>
+    private static string FormatMenuChoice(string choice) =>
+        ConfigSettings.Hints.TryGetValue(choice, out var hint)
+            ? Markup.Escape($"{choice} — {hint}")
+            : Markup.Escape(choice);
+
+    /// <summary>The directory a path-picker should open in: the persisted value, or a deterministic fallback.</summary>
+    private static string GetExistingPathValue(WgFetchConfig config, string name, string fallbackDirectory) => name switch
+    {
+        "outputDirectory" => string.IsNullOrWhiteSpace(config.OutputDirectory) ? fallbackDirectory : config.OutputDirectory,
+        "cacheDirectory" => string.IsNullOrWhiteSpace(config.CacheDirectory) ? fallbackDirectory : config.CacheDirectory,
+        "modelsRoot" => string.IsNullOrWhiteSpace(config.ModelsRoot) ? fallbackDirectory : config.ModelsRoot,
+        _ => fallbackDirectory,
+    };
+
+    /// <summary>
+    /// A basic directory browser for path-valued settings: step into subdirectories, go up, jump to a
+    /// typed path, or cancel. Listing failures (permissions, unmounted drives) degrade to an empty
+    /// listing instead of crashing the interactive session. Returns <see langword="null"/> only when
+    /// the user cancels; a manually typed path is returned as-is (it need not exist yet — creating it
+    /// is handled by the caller) rather than resolved, so a brand-new directory name is preserved.
+    /// </summary>
+    private static string? PickDirectory(IAnsiConsole console, string startingPath, IReadOnlyCollection<string> redactionSecrets)
+    {
+        var current = ResolveExistingDirectoryOrCurrent(startingPath);
+        while (true)
+        {
+            var display = Logging.SecretRedactor.Redact(current, redactionSecrets);
+            var choices = new List<string>();
+            var parent = SafeGetParent(current);
+            if (parent is not null)
+            {
+                choices.Add(ParentDirectoryChoice);
+            }
+
+            choices.AddRange(SafeListSubdirectories(current, console, redactionSecrets));
+            choices.Add(UseThisDirectoryChoice);
+            choices.Add(EnterPathManuallyChoice);
+            choices.Add(CancelPathChoice);
+
+            var choice = console.Prompt(
+                new SelectionPrompt<string>()
+                    .Title($"Browse for a directory — currently [grey]{Markup.Escape(display)}[/]")
+                    .UseConverter(Markup.Escape)
+                    .PageSize(15)
+                    .AddChoices(choices));
+
+            switch (choice)
+            {
+                case UseThisDirectoryChoice:
+                    return current;
+                case CancelPathChoice:
+                    return null;
+                case ParentDirectoryChoice:
+                    current = parent!;
+                    continue;
+                case EnterPathManuallyChoice:
+                    var manual = console.Prompt(new TextPrompt<string>("Path (leave blank to cancel)").AllowEmpty());
+                    if (string.IsNullOrWhiteSpace(manual))
+                    {
+                        continue;
+                    }
+
+                    return manual;
+                default:
+                    current = Path.Combine(current, choice);
+                    continue;
+            }
+        }
+    }
+
+    private static string? SafeGetParent(string path)
+    {
+        try
+        {
+            return Directory.GetParent(path)?.FullName;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException or PathTooLongException or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<string> SafeListSubdirectories(string path, IAnsiConsole console, IReadOnlyCollection<string> redactionSecrets)
+    {
+        try
+        {
+            return Directory.GetDirectories(path)
+                .Select(Path.GetFileName)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .Select(name => name!)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            var display = Logging.SecretRedactor.Redact(exception.Message, redactionSecrets);
+            console.MarkupLine($"[yellow]Cannot list subdirectories:[/] {Markup.Escape(display)}");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Resolves a candidate to an existing directory to browse from, walking up to the nearest
+    /// existing ancestor when the candidate itself doesn't exist yet (a not-yet-created path, for
+    /// example). Falls back to the current directory only if nothing in the chain can be resolved.
+    /// </summary>
+    private static string ResolveExistingDirectoryOrCurrent(string candidate)
+    {
+        try
+        {
+            var probe = Path.GetFullPath(string.IsNullOrWhiteSpace(candidate) ? "." : candidate);
+            for (var depth = 0; depth < 64 && !string.IsNullOrEmpty(probe); depth++)
+            {
+                if (Directory.Exists(probe))
+                {
+                    return probe;
+                }
+
+                probe = Path.GetDirectoryName(probe);
+            }
+
+            return Environment.CurrentDirectory;
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return Environment.CurrentDirectory;
+        }
     }
 
     /// <summary>
@@ -258,7 +410,14 @@ public sealed partial class CommandRunner
 
         if (choice == ChangeModelsRootChoice)
         {
-            var root = console.Prompt(new TextPrompt<string>("Models root (leave blank to cancel)").AllowEmpty());
+            // When modelsRoot is unset, `modelsRoot` here already resolved to the real machine default
+            // (WgFetchPaths.ModelsDirectory), which is not deterministic across environments. Prefer
+            // browsing from beside the config file in that case so the picker's starting point stays
+            // predictable; once a modelsRoot is actually configured, start from it as expected.
+            var startingDirectory = string.IsNullOrWhiteSpace(config.ModelsRoot)
+                ? (Path.GetDirectoryName(configPath) is { Length: > 0 } configDirectory ? configDirectory : Environment.CurrentDirectory)
+                : modelsRoot;
+            var root = PickDirectory(console, startingDirectory, redactionSecrets);
             if (string.IsNullOrWhiteSpace(root))
             {
                 return ExitCode.Success;

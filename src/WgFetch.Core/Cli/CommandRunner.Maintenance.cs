@@ -29,13 +29,13 @@ public sealed partial class CommandRunner
         bool plainRendering,
         CancellationToken cancellationToken)
     {
-        if (parsed.SubCommand is not null && parsed.Has("--interactive"))
+        if (parsed.SubCommand is not null and not "tui" && parsed.Has("--interactive"))
         {
             _stderr.WriteLine("wgfetch config: --interactive cannot be combined with a subcommand.");
             return ExitCode.UsageError;
         }
 
-        if (parsed.SubCommand is null)
+        if (parsed.SubCommand is null or "tui")
         {
             return await InteractiveConfigAsync(
                 config,
