@@ -31,6 +31,9 @@ public sealed record TerminalEnvironment
 
     public bool JsonRequested { get; init; }
 
+    /// <summary>Attached console width when the host exposes it; otherwise <see langword="null"/>.</summary>
+    public int? WindowWidth { get; init; }
+
     /// <summary>Windows consoles are ANSI-capable without setting <c>TERM</c>.</summary>
     public bool IsWindows { get; init; } = OperatingSystem.IsWindows();
 
@@ -46,8 +49,30 @@ public sealed record TerminalEnvironment
             PlainRequested = plainRequested,
             NoColorRequested = noColorRequested,
             JsonRequested = jsonRequested,
+            WindowWidth = TryGetWindowWidth(),
             IsWindows = OperatingSystem.IsWindows(),
         };
+
+    internal static int? TryGetWindowWidth()
+    {
+        if (Console.IsOutputRedirected)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Console.WindowWidth is > 0 and var width ? width : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (PlatformNotSupportedException)
+        {
+            return null;
+        }
+    }
 }
 
 /// <summary>

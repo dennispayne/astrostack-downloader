@@ -242,7 +242,8 @@ public sealed partial class CommandRunner
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
         _activeSecrets = settings.Secrets;
 
-        var terminal = TerminalCapability.Detect(BuildTerminalEnvironment(settings));
+        var terminalEnvironment = BuildTerminalEnvironment(settings);
+        var terminal = TerminalCapability.Detect(terminalEnvironment);
         _loggerProvider = new RedactingConsoleLoggerProvider(_stderr, settings.LogLevel, settings.Secrets);
         _logger = _loggerProvider.CreateLogger("wgfetch");
 
@@ -328,7 +329,8 @@ public sealed partial class CommandRunner
             return ExitCode.UsageError;
         }
 
-        var terminal = TerminalCapability.Detect(BuildTerminalEnvironment(settings));
+        var terminalEnvironment = BuildTerminalEnvironment(settings);
+        var terminal = TerminalCapability.Detect(terminalEnvironment);
         var displayOutputDirectory = SecretRedactor.Redact(settings.OutputDirectory, settings.Secrets);
 
         TargetsDocument? targets = null;
@@ -365,7 +367,12 @@ public sealed partial class CommandRunner
                 ColorSystem = ColorSystemSupport.TrueColor,
                 Out = new AnsiConsoleOutput(_stdout),
             });
-            console.Write(SplashScreen.CreateInteractiveHeader());
+            if (terminalEnvironment.WindowWidth is > 0 and var windowWidth)
+            {
+                console.Profile.Width = windowWidth;
+            }
+
+            console.Write(SplashScreen.CreateInteractiveHeader(terminalEnvironment.WindowWidth));
             console.WriteLine();
         }
         else
@@ -486,6 +493,7 @@ public sealed partial class CommandRunner
                 PlainRequested = plain,
                 NoColorRequested = noColor,
                 JsonRequested = json,
+                WindowWidth = TerminalEnvironment.TryGetWindowWidth(),
             };
         }
 

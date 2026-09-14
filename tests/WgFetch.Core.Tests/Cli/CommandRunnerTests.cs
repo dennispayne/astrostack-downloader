@@ -107,14 +107,16 @@ public sealed class CommandRunnerTests
         var runner = new CommandRunner(stdout, new StringWriter(), new RunnerDependencies
         {
             Environment = new Dictionary<string, string?> { ["WGFETCH_OUTPUT"] = temp.Path },
-            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false },
+            TerminalEnvironment = new TerminalEnvironment { Term = "xterm-256color", IsWindows = false, WindowWidth = 80 },
         });
 
         var exit = await runner.RunAsync([], CancellationToken.None);
 
         Assert.Equal(ExitCode.UsageError, exit);
-        Assert.Contains("resolve  •  verify  •  download", stdout.ToString(), StringComparison.Ordinal);
-        Assert.Contains("\u001b[38;2;99;102;241m", stdout.ToString(), StringComparison.Ordinal);
+        Assert.True(stdout.ToString().Count(character => character == '█') >= 80);
+        Assert.Contains("resolve", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("download", stdout.ToString(), StringComparison.Ordinal);
+        Assert.True(stdout.ToString().Split("\u001b[38;2;", StringSplitOptions.None).Length >= 6);
         Assert.Contains("Usage: wgfetch <command> [options]", stdout.ToString(), StringComparison.Ordinal);
     }
 

@@ -136,12 +136,15 @@ public sealed class SplashScreenTests
         console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesPresent: false));
 
         Assert.Contains("╭", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("resolve - verify - download", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("\u001b[38;2;99;102;241m", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("resolve", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("download", output.ToString(), StringComparison.Ordinal);
+        Assert.True(
+            output.ToString().Split("\u001b[38;2;", StringSplitOptions.None).Length >= 6,
+            "Expected several true-color transitions in the gradient.");
     }
 
     [Fact]
-    public void Interactive_UsesAsciiArtThatFitsANarrowTerminal()
+    public void Interactive_UsesBlockLogoWhenTerminalHasRoom()
     {
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -150,15 +153,40 @@ public sealed class SplashScreenTests
             ColorSystem = ColorSystemSupport.TrueColor,
             Out = new AnsiConsoleOutput(output),
         });
-        console.Profile.Width = 60;
+        console.Profile.Width = 80;
 
-        console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesPresent: false));
+        console.Write(SplashScreen.CreateInteractive(
+            null,
+            "/source",
+            prerequisitesPresent: false,
+            terminalWidth: 80));
 
         var rendered = output.ToString();
-        Assert.Contains("W   W  GGG  FFFFF", rendered, StringComparison.Ordinal);
-        Assert.DoesNotContain('█', rendered);
-        Assert.DoesNotContain('╔', rendered);
-        Assert.DoesNotContain('•', rendered);
+        Assert.True(rendered.Count(character => character == '█') >= 80);
+        Assert.Contains('•', rendered);
+    }
+
+    [Fact]
+    public void Interactive_UsesCompactBlockBadgeOnNarrowTerminal()
+    {
+        var output = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Out = new AnsiConsoleOutput(output),
+        });
+        console.Profile.Width = 40;
+
+        console.Write(SplashScreen.CreateInteractive(
+            null,
+            "/source",
+            prerequisitesPresent: false,
+            terminalWidth: 40));
+
+        var rendered = output.ToString();
+        Assert.Contains("█▄ WGFETCH ▄█", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain("█   █  ███", rendered, StringComparison.Ordinal);
     }
 
     [Fact]

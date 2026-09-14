@@ -29,10 +29,11 @@ public static class SplashScreen
         string outputDirectory,
         bool prerequisitesPresent,
         DateTimeOffset? now = null,
-        string? targetsError = null)
+        string? targetsError = null,
+        int? terminalWidth = null)
     {
         return new Rows(
-            CreateInteractiveHeader(),
+            CreateInteractiveHeader(terminalWidth),
             CreateStatus(targets, outputDirectory, prerequisitesPresent, now ?? DateTimeOffset.UtcNow, targetsError));
     }
 
@@ -47,25 +48,35 @@ public static class SplashScreen
         writer.WriteLine();
     }
 
-    internal static IRenderable CreateInteractiveHeader()
+    internal static IRenderable CreateInteractiveHeader(int? terminalWidth = null)
     {
         const string backslash = "\\";
+        if (terminalWidth is > 0 and < 52)
+        {
+            return new Panel(new Markup(
+                "[#67e8f9]█▄[/] [#60a5fa]WGFETCH[/] [#8b5cf6]▄█[/]\n" +
+                "[#67e8f9]resolve[/] [#60a5fa]• verify[/] [#a78bfa]• download[/]"))
+                .Border(BoxBorder.Rounded)
+                .BorderColor(Color.FromHex("#8b5cf6"))
+                .Padding(1, 0);
+        }
+
         var art = new Markup(
-            "[#67e8f9].[/]       [#6366f1]*[/]             [#67e8f9].[/]\n" +
+            "[#67e8f9]·[/]       [#60a5fa]✦[/]             [#8b5cf6]·[/]\n" +
             "              [#67e8f9]/" + backslash + "[/]\n" +
-            "             [#67e8f9]/  " + backslash + "[/]       [#6366f1]*[/]\n" +
-            "        [#67e8f9]o===/____" + backslash + "[/]\n" +
-            "            [#67e8f9](____)[/]\n\n" +
-            "[#6366f1]W   W  GGG  FFFFF EEEEE TTTTT  CCC H   H[/]\n" +
-            "[#6366f1]W   W G     F     E       T   C    H   H[/]\n" +
-            "[#67e8f9]W W W G GGG FFF   EEE     T   C    HHHHH[/]\n" +
-            "[#67e8f9]WW WW G   G F     E       T   C    H   H[/]\n" +
-            "[#6366f1]W   W  GGG  F     EEEEE   T    CCC H   H[/]\n\n" +
-            "[#67e8f9]       resolve - verify - download[/]");
+            "             [#60a5fa]/  " + backslash + "[/]       [#a78bfa]⋆[/]\n" +
+            "        [#818cf8]o===/____" + backslash + "[/]\n" +
+            "            [#8b5cf6](____)[/]\n\n" +
+            "[#67e8f9]█   █  ███  █████ █████ █████  ███  █   █[/]\n" +
+            "[#60a5fa]█   █ █     █     █       █   █     █   █[/]\n" +
+            "[#818cf8]█ █ █ █ ███ ████  ████    █   █     █████[/]\n" +
+            "[#8b5cf6]██ ██ █   █ █     █       █   █     █   █[/]\n" +
+            "[#a78bfa]█   █  ███  █     █████   █    ███  █   █[/]\n\n" +
+            "[#67e8f9]       resolve[/] [#60a5fa]•[/] [#818cf8]verify[/] [#8b5cf6]•[/] [#a78bfa]download[/]");
 
         return new Panel(art)
             .Border(BoxBorder.Rounded)
-            .BorderColor(Color.FromHex("#6366f1"))
+            .BorderColor(Color.FromHex("#8b5cf6"))
             .Padding(2, 1);
     }
 
