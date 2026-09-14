@@ -17,6 +17,8 @@ public sealed record TerminalEnvironment
 
     public bool ErrorRedirected { get; init; }
 
+    public bool InputRedirected { get; init; }
+
     public string? Term { get; init; }
 
     public bool NoColorSet { get; init; }
@@ -37,6 +39,7 @@ public sealed record TerminalEnvironment
         {
             OutputRedirected = Console.IsOutputRedirected,
             ErrorRedirected = Console.IsErrorRedirected,
+            InputRedirected = Console.IsInputRedirected,
             Term = Environment.GetEnvironmentVariable("TERM"),
             NoColorSet = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NO_COLOR")),
             CiSet = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI")),
@@ -72,5 +75,30 @@ public static class TerminalCapability
         }
 
         return TerminalMode.Interactive;
+    }
+
+    /// <summary>
+    /// True only when a real, attached terminal can accept prompts. Unlike <see cref="Detect"/> — which
+    /// also degrades rendering for cosmetic reasons such as <c>--plain</c>, <c>--no-color</c>, or
+    /// <c>NO_COLOR</c> — a genuinely attached TTY still accepts interactive input under those flags, so
+    /// they must not be treated as "no terminal" here. Only the absence of a real terminal (redirected
+    /// streams, CI, <c>--json</c>, <c>TERM=dumb</c>, or no <c>TERM</c> on a non-Windows host) disqualifies it.
+    /// </summary>
+    public static bool IsInteractiveTerminal(TerminalEnvironment environment)
+    {
+        ArgumentNullException.ThrowIfNull(environment);
+
+        if (environment.OutputRedirected ||
+            environment.ErrorRedirected ||
+            environment.InputRedirected ||
+            environment.CiSet ||
+            environment.JsonRequested ||
+            string.Equals(environment.Term, "dumb", StringComparison.OrdinalIgnoreCase) ||
+            (!environment.IsWindows && string.IsNullOrEmpty(environment.Term)))
+        {
+            return false;
+        }
+
+        return true;
     }
 }

@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 using WgFetch.Core.Abstractions;
 using WgFetch.Core.Catalog;
 using WgFetch.Core.Configuration;
@@ -7,6 +8,7 @@ using WgFetch.Core.Inference;
 using WgFetch.Core.Logging;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
+using WgFetch.Core.Prereqs;
 using WgFetch.Core.Progress;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
@@ -32,6 +34,19 @@ public sealed record RunnerDependencies
 
     /// <summary>Overrides the process environment so terminal detection is testable.</summary>
     public IReadOnlyDictionary<string, string?>? Environment { get; init; }
+
+    /// <summary>Overrides interactive terminal I/O so embedded callers can supply their own console.</summary>
+    public IAnsiConsole? InteractiveConsole { get; init; }
+
+    /// <summary>Overrides pinned models so interactive prerequisite management remains hermetic.</summary>
+    public IReadOnlyList<PinnedModel>? PrereqModels { get; init; }
+
+    /// <summary>
+    /// Overrides whether a real, attached interactive terminal is present. Hermetic tests run with no
+    /// TTY at all, so this lets them exercise the interactive config flow (with an injected
+    /// <see cref="InteractiveConsole"/>) without a real console being attached.
+    /// </summary>
+    public bool? InteractiveTerminalOverride { get; init; }
 }
 
 /// <summary>
@@ -89,9 +104,10 @@ public sealed partial class CommandRunner
 
         if (parsed.HasErrors)
         {
+            var parseErrorSecrets = ResolveCliAndEnvironmentSecrets(parsed);
             foreach (var error in parsed.Errors)
             {
-                _stderr.WriteLine($"wgfetch: {error}");
+                _stderr.WriteLine($"wgfetch: {SecretRedactor.Redact(error, parseErrorSecrets)}");
             }
 
             _stderr.WriteLine("Run 'wgfetch --help' for usage.");
@@ -145,7 +161,53 @@ public sealed partial class CommandRunner
 
     private async Task<ExitCode> ExecuteAsync(ParsedCommandLine parsed, CancellationToken cancellationToken)
     {
-        var config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        WgFetchConfig config;
+        try
+        {
+            config = await ConfigFile.LoadAsync(parsed.Value("--config"), cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;
+            var message = SecretRedactor.Redact(
+                $"unable to read config file '{path}': {exception.Message}",
+                ResolveCliAndEnvironmentSecrets(parsed));
+            _stderr.WriteLine($"wgfetch: {message}");
+            return ExitCode.ConfigurationError;
+        }
+
+        if (parsed.Command == "config")
+        {
+            var configSecrets = ResolveConfigSecrets(parsed, config);
+            _loggerProvider = new RedactingConsoleLoggerProvider(
+                _stderr,
+                LogLevelParser.Parse(parsed.Value("--log-level") ?? config.LogLevel),
+                configSecrets);
+            _logger = _loggerProvider.CreateLogger("wgfetch");
+
+            if (parsed.Has("--json"))
+            {
+                _events = new JsonEventWriter(_stdout, configSecrets, deterministicOrder: true);
+                _humanToStderr = true;
+            }
+
+            var configEnvironment = BuildTerminalEnvironment(
+                ResolveConfigPlain(parsed.Has("--plain"), config.Plain),
+                parsed.Has("--no-color"),
+                parsed.Has("--json"));
+            var isInteractiveTerminal = _dependencies.InteractiveTerminalOverride
+                ?? TerminalCapability.IsInteractiveTerminal(configEnvironment);
+            var plainRendering = TerminalCapability.Detect(configEnvironment) == TerminalMode.Plain;
+            return await ConfigAsync(
+                parsed,
+                config,
+                configSecrets,
+                isInteractiveTerminal,
+                plainRendering,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         var settings = RunSettings.Resolve(parsed, config, _dependencies.Environment);
 
         var terminal = TerminalCapability.Detect(BuildTerminalEnvironment(settings));
@@ -188,23 +250,86 @@ public sealed partial class CommandRunner
         return exitCode;
     }
 
-    private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings)
+    /// <summary>
+    /// A persisted <c>plain</c> setting must be honored the same way <see cref="RunSettings.Resolve"/>
+    /// honors it for every other command, so <c>wgfetch config</c> does not emit ANSI escape sequences
+    /// after <c>config set plain true</c> just because <c>--plain</c> was not also passed.
+    /// </summary>
+    internal static bool ResolveConfigPlain(bool plainFlag, bool? configPlain) =>
+        plainFlag || configPlain == true;
+
+    /// <summary>
+    /// Collects every candidate credential value visible to the config command for redaction only.
+    /// This deliberately aggregates CLI, environment and persisted values instead of resolving
+    /// precedence, so stale or overridden secrets cannot leak from displayed persisted endpoints.
+    /// </summary>
+    private IReadOnlyList<string> ResolveConfigSecrets(ParsedCommandLine parsed, WgFetchConfig config) =>
+        ResolveCliAndEnvironmentSecrets(parsed)
+            .Concat([config.AiKey, config.SearchKey, config.GithubToken])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+    /// <summary>
+    /// Collects CLI- and environment-supplied credential values for redaction only, used when a
+    /// persisted config is unavailable (for example when it fails to load) so error messages still
+    /// never render a credential that was passed on the command line or via the environment.
+    /// </summary>
+    private IReadOnlyList<string> ResolveCliAndEnvironmentSecrets(ParsedCommandLine parsed)
+    {
+        var secrets = new[] {
+                parsed.Value("--ai-key"),
+                Lookup(RunSettings.AiKeyEnvironmentVariable),
+                parsed.Value("--search-key"),
+                Lookup(RunSettings.SearchKeyEnvironmentVariable),
+                parsed.Value("--github-token"),
+                Lookup(RunSettings.GithubTokenEnvironmentVariable),
+            }
+            .Concat(PendingConfigSetCredential(parsed))
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return secrets;
+
+        string? Lookup(string name) => _dependencies.Environment is null
+            ? Environment.GetEnvironmentVariable(name)
+            : _dependencies.Environment.TryGetValue(name, out var value) ? value : null;
+    }
+
+    private static IEnumerable<string?> PendingConfigSetCredential(ParsedCommandLine parsed)
+    {
+        if (parsed.Command == "config" &&
+            parsed.SubCommand == "set" &&
+            parsed.Positional.Count == 2 &&
+            IsConfigCredentialName(parsed.Positional[0]))
+        {
+            yield return parsed.Positional[1];
+        }
+    }
+
+    private TerminalEnvironment BuildTerminalEnvironment(RunSettings settings) =>
+        BuildTerminalEnvironment(settings.Plain, settings.NoColor, settings.Json);
+
+    private TerminalEnvironment BuildTerminalEnvironment(bool plain, bool noColor, bool json)
     {
         if (_dependencies.Environment is null)
         {
-            return TerminalEnvironment.FromProcess(settings.Plain, settings.NoColor, settings.Json);
+            return TerminalEnvironment.FromProcess(plain, noColor, json);
         }
 
         return new TerminalEnvironment
         {
             OutputRedirected = Console.IsOutputRedirected,
             ErrorRedirected = Console.IsErrorRedirected,
+            InputRedirected = Console.IsInputRedirected,
             Term = Lookup("TERM"),
             NoColorSet = !string.IsNullOrEmpty(Lookup("NO_COLOR")),
             CiSet = !string.IsNullOrEmpty(Lookup("CI")),
-            PlainRequested = settings.Plain,
-            NoColorRequested = settings.NoColor,
-            JsonRequested = settings.Json,
+            PlainRequested = plain,
+            NoColorRequested = noColor,
+            JsonRequested = json,
         };
 
         string? Lookup(string name) =>

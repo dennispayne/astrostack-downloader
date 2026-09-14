@@ -66,6 +66,65 @@ public sealed class TerminalCapabilityTests
         Assert.Throws<ArgumentNullException>(() => TerminalCapability.Detect(null!));
 }
 
+/// <summary>
+/// Interactive TUI gating (e.g. <c>wgfetch config --interactive</c>) must accept a real, attached
+/// terminal even when render mode degrades to plain for cosmetic reasons such as <c>--plain</c>,
+/// <c>--no-color</c>, or <c>NO_COLOR</c>. Only the true absence of a terminal disqualifies it.
+/// </summary>
+public sealed class InteractiveTerminalDetectionTests
+{
+    private static TerminalEnvironment Interactive() => new()
+    {
+        OutputRedirected = false,
+        ErrorRedirected = false,
+        InputRedirected = false,
+        Term = "xterm-256color",
+        IsWindows = false,
+    };
+
+    [Fact]
+    public void A_real_terminal_is_interactive() =>
+        Assert.True(TerminalCapability.IsInteractiveTerminal(Interactive()));
+
+    [Theory]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    public void Cosmetic_render_flags_do_not_disqualify_an_attached_terminal(bool plain, bool noColor, bool noColorSet)
+    {
+        var environment = Interactive() with { PlainRequested = plain, NoColorRequested = noColor, NoColorSet = noColorSet };
+
+        // Render mode still degrades to plain...
+        Assert.Equal(TerminalMode.Plain, TerminalCapability.Detect(environment));
+        // ...but the terminal itself can still accept interactive prompts.
+        Assert.True(TerminalCapability.IsInteractiveTerminal(environment));
+    }
+
+    [Fact]
+    public void A_redirected_stream_is_not_interactive() =>
+        Assert.False(TerminalCapability.IsInteractiveTerminal(Interactive() with { OutputRedirected = true }));
+
+    [Fact]
+    public void Redirected_stdin_is_not_interactive() =>
+        Assert.False(TerminalCapability.IsInteractiveTerminal(Interactive() with { InputRedirected = true }));
+
+    [Fact]
+    public void Ci_is_not_interactive() =>
+        Assert.False(TerminalCapability.IsInteractiveTerminal(Interactive() with { CiSet = true }));
+
+    [Fact]
+    public void Json_requested_is_not_interactive() =>
+        Assert.False(TerminalCapability.IsInteractiveTerminal(Interactive() with { JsonRequested = true }));
+
+    [Fact]
+    public void A_dumb_terminal_is_not_interactive() =>
+        Assert.False(TerminalCapability.IsInteractiveTerminal(Interactive() with { Term = "dumb" }));
+
+    [Fact]
+    public void Detection_rejects_a_null_environment() =>
+        Assert.Throws<ArgumentNullException>(() => TerminalCapability.IsInteractiveTerminal(null!));
+}
+
 public sealed class PlainProgressRendererTests
 {
     private static string[] Lines(StringWriter buffer) =>
