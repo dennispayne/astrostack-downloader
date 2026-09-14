@@ -1,3 +1,4 @@
+using WgFetch.Core.Abstractions;
 using WgFetch.Core.Tests.Support;
 using WgFetch.Core.Verification;
 
@@ -12,6 +13,178 @@ public sealed class VerificationGateTests
     private static readonly DomainAllowlist Allowlist = new(["nighttime-imaging.eu", "github.com"]);
 
     private static VerificationGate Gate(StubHttpGateway http) => new(http, new VerificationOptions());
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_non_https_candidate_before_any_request()
+    {
+        var http = new StubHttpGateway();
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri("http://github.com/x/setup.exe") },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.NotHttps, result.FailureStatus);
+        Assert.Empty(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_relative_candidate_before_any_request()
+    {
+        var http = new StubHttpGateway();
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri("setup.exe", UriKind.Relative) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.NotHttps, result.FailureStatus);
+        Assert.Equal("candidate URL is not an absolute https URL", result.FailureReason);
+        Assert.Empty(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_redirect_to_http()
+    {
+        const string url = "https://github.com/x/setup.exe";
+        var http = new StubHttpGateway().Map(url, StubResponse.Redirect("http://github.com/x/setup.exe"));
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.NotHttps, result.FailureStatus);
+        Assert.Single(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_redirect_without_a_location()
+    {
+        const string url = "https://github.com/x/setup.exe";
+        var http = new StubHttpGateway().Map(url, new StubResponse { StatusCode = 302 });
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.RequestFailed, result.FailureStatus);
+        Assert.Single(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_rejects_a_malformed_location_without_a_second_request()
+    {
+        const string url = "https://github.com/x/setup.exe";
+        var http = new StubHttpGateway().Map(url, StubResponse.Redirect("https://[::1"));
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.RequestFailed, result.FailureStatus);
+        Assert.Single(http.Requests);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_stops_at_the_configured_limit()
+    {
+        const string url = "https://github.com/loop";
+        var http = new StubHttpGateway().Map(url, StubResponse.Redirect(url));
+        var gate = new VerificationGate(http, new VerificationOptions { MaximumRedirects = 1 });
+
+        await using var result = await gate.FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(url) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.TooManyRedirects, result.FailureStatus);
+        Assert.Equal(2, http.Requests.Count);
+        Assert.Equal(new Uri(url), result.FinalUrl);
+        Assert.Single(result.RedirectChain);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_strips_credential_headers_when_the_authority_changes()
+    {
+        const string source = "https://github.com/x/setup.exe";
+        const string target = "https://objects.github.com/asset/setup.exe";
+        var http = new StubHttpGateway()
+            .Map(source, StubResponse.Redirect(target))
+            .Map(target, StubResponse.Binary(FakeInstaller.PortableExecutable()));
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Accept"] = "application/octet-stream",
+            ["Authorization"] = "authorization-sentinel",
+            ["Cookie"] = "session=credential-value",
+            ["X-Api-Key"] = "credential-value",
+            ["Ocp-Apim-Subscription-Key"] = "credential-value",
+            ["X-Credential"] = "credential-value",
+            ["X-Password"] = "credential-value",
+            ["X-Auth"] = "credential-value",
+            ["X-Authorization"] = "credential-value",
+        };
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(source), Headers = headers },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(headers, http.Requests[0].Headers);
+        Assert.Equal("application/octet-stream", http.Requests[1].Headers["Accept"]);
+        Assert.DoesNotContain("Authorization", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Cookie", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Api-Key", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Ocp-Apim-Subscription-Key", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Credential", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Password", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Auth", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("X-Authorization", http.Requests[1].Headers.Keys, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Verification_logs_redacted_signed_redirect_urls()
+    {
+        const string source = "https://github.com/x/setup.exe";
+        var signature = new string('s', 32);
+        var target = $"https://objects.github.com/asset/setup.exe?X-Amz-Credential=credential-value&X-Amz-Signature={signature}";
+        var http = new StubHttpGateway()
+            .Map(source, StubResponse.Redirect(target))
+            .Map(target, StubResponse.Binary(FakeInstaller.PortableExecutable(), "application/x-unknown"));
+        var logger = new CapturingLogger();
+
+        var result = await new VerificationGate(http, new VerificationOptions(), logger)
+            .VerifyAsync(new Uri(source), Allowlist, CancellationToken.None);
+
+        var output = string.Join(Environment.NewLine, logger.Messages);
+        Assert.True(result.Accepted);
+        Assert.DoesNotContain("credential-value", output, StringComparison.Ordinal);
+        Assert.DoesNotContain(signature, output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Redirect_follower_redacts_signed_cdn_urls_from_request_failures()
+    {
+        const string source = "https://github.com/x/setup.exe";
+        var signature = new string('s', 32);
+        var target = $"https://objects.github.com/asset/setup.exe?X-Amz-Credential=credential-value&X-Amz-Signature={signature}";
+        var http = new StubHttpGateway()
+            .Map(source, StubResponse.Redirect(target))
+            .Map(target, _ => throw new InvalidOperationException($"Could not reach {target}"));
+
+        await using var result = await Gate(http).FollowAllowedRedirectsAsync(
+            new HttpRequestSpec { Url = new Uri(source) },
+            Allowlist,
+            CancellationToken.None);
+
+        Assert.Equal(VerificationStatus.RequestFailed, result.FailureStatus);
+        Assert.DoesNotContain("credential-value", result.FailureReason, StringComparison.Ordinal);
+        Assert.DoesNotContain(signature, result.FailureReason, StringComparison.Ordinal);
+        Assert.Contains(WgFetch.Core.Logging.SecretRedactor.Placeholder, result.FailureReason, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task Accepts_a_plausible_vendor_installer()

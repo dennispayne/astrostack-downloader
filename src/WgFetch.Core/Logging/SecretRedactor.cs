@@ -35,9 +35,21 @@ public static partial class SecretRedactor
         "key", "token", "secret", "signature", "password", "credential", "auth",
     ];
 
+    private static readonly string[] SensitiveQueryFragments =
+        ["credential", "signature", "token", "hmac"];
+
     private static readonly HashSet<string> SensitiveFieldNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "aiKey", "searchKey", "githubToken", "apiKey", "token", "password", "secret", "authorization",
+    };
+
+    private static readonly string[] SensitiveHeaderFragments =
+        ["api-key", "apikey", "authorization", "credential", "password", "token", "secret"];
+
+    private static readonly HashSet<string> SensitiveHeaderNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Authorization", "Proxy-Authorization", "X-Auth", "X-Authorization", "Cookie", "Cookie2",
+        "Ocp-Apim-Subscription-Key",
     };
 
     [GeneratedRegex(@"gh[pousr]_[A-Za-z0-9]{16,}", RegexOptions.CultureInvariant)]
@@ -54,6 +66,12 @@ public static partial class SecretRedactor
 
     /// <summary>True when a configuration or provenance field name holds a secret.</summary>
     public static bool IsSensitiveFieldName(string name) => SensitiveFieldNames.Contains(name);
+
+    /// <summary>True when an HTTP header can carry credentials and must not cross authorities.</summary>
+    public static bool IsSensitiveHeaderName(string name) =>
+        SensitiveHeaderNames.Contains(name) ||
+        name.EndsWith("-key", StringComparison.OrdinalIgnoreCase) ||
+        SensitiveHeaderFragments.Any(fragment => name.Contains(fragment, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Redacts well-known secret shapes and any explicitly registered secret values.</summary>
     public static string Redact(string? text, IEnumerable<string>? knownSecrets = null)
@@ -231,6 +249,12 @@ public static partial class SecretRedactor
     /// </summary>
     private static bool IsSensitiveParameterName(string name)
     {
+        if (SensitiveQueryFragments.Any(fragment =>
+            name.Contains(fragment, StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
         var normalized = NormalizeParameterName(name);
         if (normalized.Length == 0)
         {

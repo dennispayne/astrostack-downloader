@@ -50,6 +50,7 @@ public sealed class SecretRedactorTests
     [Theory]
     [InlineData("https://api.search.example/search?q=nina&key=supersecretvalue", "supersecretvalue")]
     [InlineData("https://api.example/v1?access_token=abcdef123456", "abcdef123456")]
+    [InlineData("https://cdn.example/asset?X-Amz-Signature-Version=AWS4-HMAC-SHA256", "AWS4-HMAC-SHA256")]
     public void Redacts_credentials_and_sensitive_query_parameters_in_urls(string url, string secret)
     {
         var redacted = SecretRedactor.RedactUrl(url);
@@ -261,6 +262,18 @@ public sealed class SecretRedactorTests
         Assert.True(SecretRedactor.IsSensitiveFieldName("aiKey"));
         Assert.False(SecretRedactor.IsSensitiveFieldName("aiEndpoint"));
     }
+
+    [Theory]
+    [InlineData("X-Auth")]
+    [InlineData("X-Authorization")]
+    [InlineData("X-Custom-Authorization")]
+    [InlineData("Proxy-Authorization")]
+    public void Recognises_authentication_headers_as_sensitive(string name) =>
+        Assert.True(SecretRedactor.IsSensitiveHeaderName(name));
+
+    [Fact]
+    public void Does_not_treat_unrelated_headers_as_sensitive() =>
+        Assert.False(SecretRedactor.IsSensitiveHeaderName("X-Author"));
 
     [Fact]
     public void Handles_null_and_empty_input()

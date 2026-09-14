@@ -123,6 +123,44 @@ public sealed class CommandLineParserTests
         Assert.True(CommandLineParser.Parse(["prereqs", "reinstall"]).HasErrors);
     }
 
+    [Theory]
+    [InlineData("--models-root")]
+    [InlineData("--models-dir")]
+    public void Prereqs_accepts_canonical_models_root_and_deprecated_alias(string option)
+    {
+        var parsed = CommandLineParser.Parse(["prereqs", "status", option, "/tmp/models"]);
+
+        Assert.False(parsed.HasErrors);
+        Assert.Equal("/tmp/models", parsed.Value(option));
+    }
+
+    [Fact]
+    public void Run_settings_resolves_models_dir_as_an_alias_for_models_root()
+    {
+        var parsed = CommandLineParser.Parse(["prereqs", "status", "--models-dir", "/tmp/alias-models"]);
+
+        var settings = RunSettings.Resolve(parsed, new WgFetchConfig());
+
+        Assert.Equal(Path.GetFullPath("/tmp/alias-models"), settings.ModelsRoot);
+    }
+
+    [Fact]
+    public void Run_settings_prefers_canonical_models_root_over_deprecated_alias()
+    {
+        var parsed = CommandLineParser.Parse([
+            "prereqs",
+            "status",
+            "--models-dir",
+            "/tmp/alias-models",
+            "--models-root",
+            "/tmp/canonical-models",
+        ]);
+
+        var settings = RunSettings.Resolve(parsed, new WgFetchConfig());
+
+        Assert.Equal(Path.GetFullPath("/tmp/canonical-models"), settings.ModelsRoot);
+    }
+
     [Fact]
     public void Prereqs_accepts_models_root()
     {

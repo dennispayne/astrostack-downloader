@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using WgFetch.Core.Abstractions;
 using WgFetch.Core.Downloads;
+using WgFetch.Core.Verification;
 
 namespace WgFetch.Core.Prereqs;
 
@@ -64,7 +65,9 @@ public sealed record PrereqInstalledFile(
 /// </summary>
 public sealed class PrereqInstaller
 {
-    private readonly IHttpGateway _http;
+    private static readonly DomainAllowlist DownloadAllowlist = new(PinnedModels.DownloadHosts);
+
+    private readonly VerificationGate _verificationGate;
     private readonly ILogger _logger;
     private readonly IReadOnlyList<PinnedModel> _models;
 
@@ -86,8 +89,8 @@ public sealed class PrereqInstaller
 
     public PrereqInstaller(IHttpGateway http, ILogger? logger = null, IReadOnlyList<PinnedModel>? models = null)
     {
-        _http = http;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+        _verificationGate = new VerificationGate(http, logger: _logger);
         _models = models ?? PinnedModels.All;
     }
 
@@ -580,83 +583,21 @@ public sealed class PrereqInstaller
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            if (!Uri.TryCreate(asset.Url, UriKind.Absolute, out var currentUrl))
+            await using (var redirected = await _verificationGate.FollowAllowedRedirectsAsync(
+                new HttpRequestSpec { Url = new Uri(asset.Url), Verb = HttpVerb.Get },
+                DownloadAllowlist,
+                cancellationToken).ConfigureAwait(false))
             {
-                _logger.LogError("Model asset URL is not a valid absolute URI for {Asset}.", asset.RelativePath);
-                return null;
-            }
-
-            HttpResponseSpec? response = null;
-            var redirectCount = 0;
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // The model list is caller-supplied, so the very first URL is validated here too: no
-                // request may leave the process for a plaintext or off-allowlist host, not even the
-                // pinned candidate itself (docs/REQUIREMENTS.md, "Safety invariant").
-                if (!string.Equals(currentUrl.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-                    !IsAllowedDownloadHost(currentUrl.Host))
+                if (!redirected.Succeeded)
                 {
                     _logger.LogError(
-                        "Model download for {Asset} targeted a non-allowlisted destination '{Scheme}://{Host}'; " +
-                        "only HTTPS requests to an allowlisted download host are permitted.",
+                        "Model download redirect verification failed for {Asset}: {Reason}.",
                         asset.RelativePath,
-                        currentUrl.Scheme,
-                        currentUrl.Host);
+                        redirected.FailureReason);
                     return null;
                 }
 
-                response = await _http
-                    .SendAsync(new HttpRequestSpec { Url = currentUrl, Verb = HttpVerb.Get }, cancellationToken)
-                    .ConfigureAwait(false);
-
-                // Hugging Face's own host issues the metadata redirect, then hands large (LFS/Xet-backed)
-                // blobs off to a CDN host; HttpGateway disables automatic redirects so the allowlist gate
-                // can decide every hop explicitly (docs/REQUIREMENTS.md, model pinning).
-                if (!response.IsRedirect)
-                {
-                    break;
-                }
-
-                var location = response.Header("Location");
-                await response.DisposeAsync().ConfigureAwait(false);
-                response = null;
-
-                if (string.IsNullOrWhiteSpace(location) || !Uri.TryCreate(currentUrl, location, out var next))
-                {
-                    _logger.LogError("Model download redirect for {Asset} had no usable Location header.", asset.RelativePath);
-                    return null;
-                }
-
-                if (!string.Equals(next.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-                    !IsAllowedDownloadHost(next.Host))
-                {
-                    _logger.LogError(
-                        "Model download for {Asset} redirected to a non-allowlisted host '{Host}'.",
-                        asset.RelativePath,
-                        next.Host);
-                    return null;
-                }
-
-                if (redirectCount >= MaxRedirects)
-                {
-                    _logger.LogError("Model download for {Asset} exceeded {Max} redirects.", asset.RelativePath, MaxRedirects);
-                    return null;
-                }
-
-                redirectCount++;
-                currentUrl = next;
-            }
-
-            if (response is null)
-            {
-                _logger.LogError("Model download for {Asset} produced no response.", asset.RelativePath);
-                return null;
-            }
-
-            await using (response.ConfigureAwait(false))
-            {
+                var response = redirected.Response!;
                 if (!response.IsSuccess)
                 {
                     _logger.LogError("Model download failed with HTTP {Status} for {Asset}.", response.StatusCode, asset.RelativePath);
@@ -686,24 +627,6 @@ public sealed class PrereqInstaller
         {
             TryDelete(temp);
         }
-    }
-
-    private const int MaxRedirects = 5;
-
-    private static bool IsAllowedDownloadHost(string host)
-    {
-        foreach (var allowed in PinnedModels.DownloadHosts)
-        {
-            if (string.Equals(host, allowed, StringComparison.OrdinalIgnoreCase) ||
-                (host.Length > allowed.Length &&
-                 host.EndsWith(allowed, StringComparison.OrdinalIgnoreCase) &&
-                 host[host.Length - allowed.Length - 1] == '.'))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static void TryDelete(string path)
