@@ -49,29 +49,24 @@ public static class SplashScreen
 
     internal static IRenderable CreateInteractiveHeader()
     {
-        // The rocket's roof is drawn with literal backslashes right up against a closing "[/]" tag.
-        // Spectre's markup grammar only treats "[" and "]" specially (escaped as "[[" / "]]"), so a
-        // bare backslash needs no escaping here and does not break the adjacent closing tag; the named
-        // constant below just keeps the three occurrences readable rather than inline C# string escapes.
         const string backslash = "\\";
         var art = new Markup(
-            "[#67e8f9]·[/]       [#6366f1]⋆[/]       [#67e8f9]·[/]          [#6366f1]✦[/]\n" +
-            " [#6366f1]✦[/]      [#67e8f9]·[/]              [#67e8f9]/" + backslash + "[/]\n" +
-            "         [#67e8f9]⋆[/]             [#67e8f9]/  " + backslash + "[/]       [#6366f1]⋆[/]\n" +
-            "                    [#67e8f9]o======/    " + backslash + "[/]\n" +
-            "                           [#67e8f9](___)[/]\n" +
-            "[#6366f1]██╗    ██╗ ██████╗ ███████╗███████╗████████╗ ██████╗██╗[/]\n" +
-            "[#6366f1]██║    ██║██╔════╝ ██╔════╝██╔════╝╚══██╔══╝██╔════╝██║[/]\n" +
-            "[#67e8f9]██║ █╗ ██║██║  ███╗█████╗  █████╗     ██║   ██║     ██║[/]\n" +
-            "[#67e8f9]██║███╗██║██║   ██║██╔══╝  ██╔══╝     ██║   ██║     ██║[/]\n" +
-            "[#6366f1]╚███╔███╔╝╚██████╔╝██║     ███████╗   ██║   ╚██████╗██║[/]\n" +
-            "[#6366f1] ╚══╝╚══╝  ╚═════╝ ╚═╝     ╚══════╝   ╚═╝    ╚═════╝╚═╝[/]\n\n" +
-            "[#67e8f9]          resolve  •  verify  •  download[/]");
+            "[#67e8f9].[/]       [#6366f1]*[/]             [#67e8f9].[/]\n" +
+            "              [#67e8f9]/" + backslash + "[/]\n" +
+            "             [#67e8f9]/  " + backslash + "[/]       [#6366f1]*[/]\n" +
+            "        [#67e8f9]o===/____" + backslash + "[/]\n" +
+            "            [#67e8f9](____)[/]\n\n" +
+            "[#6366f1]W   W  GGG  FFFFF EEEEE TTTTT  CCC H   H[/]\n" +
+            "[#6366f1]W   W G     F     E       T   C    H   H[/]\n" +
+            "[#67e8f9]W W W G GGG FFF   EEE     T   C    HHHHH[/]\n" +
+            "[#67e8f9]WW WW G   G F     E       T   C    H   H[/]\n" +
+            "[#6366f1]W   W  GGG  F     EEEEE   T    CCC H   H[/]\n\n" +
+            "[#67e8f9]       resolve - verify - download[/]");
 
         return new Panel(art)
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.FromHex("#6366f1"))
-            .Padding(3, 1);
+            .Padding(2, 1);
     }
 
     internal static IRenderable CreateStatus(

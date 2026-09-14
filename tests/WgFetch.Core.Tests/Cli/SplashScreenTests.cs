@@ -136,12 +136,12 @@ public sealed class SplashScreenTests
         console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesPresent: false));
 
         Assert.Contains("╭", output.ToString(), StringComparison.Ordinal);
-        Assert.Contains("resolve  •  verify  •  download", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("resolve - verify - download", output.ToString(), StringComparison.Ordinal);
         Assert.Contains("\u001b[38;2;99;102;241m", output.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Interactive_RendersRocketRoofBackslashesWithoutThrowing()
+    public void Interactive_UsesAsciiArtThatFitsANarrowTerminal()
     {
         var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings
@@ -150,11 +150,15 @@ public sealed class SplashScreenTests
             ColorSystem = ColorSystemSupport.TrueColor,
             Out = new AnsiConsoleOutput(output),
         });
+        console.Profile.Width = 60;
 
         console.Write(SplashScreen.CreateInteractive(null, "/source", prerequisitesPresent: false));
 
         var rendered = output.ToString();
-        Assert.Equal(3, rendered.Count(c => c == '\\'));
+        Assert.Contains("W   W  GGG  FFFFF", rendered, StringComparison.Ordinal);
+        Assert.DoesNotContain('█', rendered);
+        Assert.DoesNotContain('╔', rendered);
+        Assert.DoesNotContain('•', rendered);
     }
 
     [Fact]
