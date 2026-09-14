@@ -41,6 +41,51 @@ public sealed class AotSmokeTests
         return (process.ExitCode, stdout, stderr);
     }
 
+    private static async Task<(int ExitCode, string Output)> RunAttachedToPseudoTerminalAsync(string script)
+    {
+        var info = new ProcessStartInfo(script)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        info.Environment.Remove("CI");
+        info.Environment.Remove("NO_COLOR");
+        info.Environment["TERM"] = "xterm-256color";
+        info.ArgumentList.Add("-q");
+        info.ArgumentList.Add("-e");
+        info.ArgumentList.Add("-c");
+        info.ArgumentList.Add(ShellQuote(BinaryPath!));
+        info.ArgumentList.Add("/dev/null");
+
+        using var process = Process.Start(info)!;
+        var stdout = await process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stderr = await process.StandardError.ReadToEndAsync(CancellationToken.None);
+        await process.WaitForExitAsync(CancellationToken.None);
+        return (process.ExitCode, stdout + stderr);
+    }
+
+    private static string? FindExecutable(string name)
+    {
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator))
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                continue;
+            }
+
+            var candidate = Path.Combine(directory, name);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static string ShellQuote(string value) => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
+
     [Fact]
     public async Task PublishedBinary_PrintsHelp()
     {
@@ -81,6 +126,36 @@ public sealed class AotSmokeTests
 
         Assert.Equal((int)ExitCode.UsageError, exit);
         Assert.Contains("wgfetch", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PublishedBinary_ExecutesInteractiveLandingWhenAttachedToConsole()
+    {
+        if (!HasBinary)
+        {
+            return;
+        }
+
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var script = FindExecutable("script");
+        if (script is null)
+        {
+            // xUnit 2 has no runtime skip support; without a PTY utility this host cannot exercise
+            // attached-console behavior, matching the no-op convention used when no binary is supplied.
+            return;
+        }
+
+        var result = await RunAttachedToPseudoTerminalAsync(script);
+
+        Assert.True(
+            result.ExitCode == (int)ExitCode.UsageError,
+            $"exit={result.ExitCode} output={result.Output}");
+        Assert.Contains("resolve  •  verify  •  download", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Usage: wgfetch <command> [options]", result.Output, StringComparison.Ordinal);
     }
 
     /// <summary>

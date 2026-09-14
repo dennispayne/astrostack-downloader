@@ -268,13 +268,14 @@ wgfetch export --format astrostack-dsc|applist [--out]
 wgfetch import --format astrostack-dsc <dir>
 wgfetch refresh              # update catalog + embeddings + recipe cache
 wgfetch prereqs install|status
+wgfetch config [set|get|list|unset] # persisted defaults; no args opens the interactive setup menu
 wgfetch verify [--output]    # re-hash artifacts against provenance.json
 wgfetch recipes list|show|export|validate
 wgfetch list [--output]
 wgfetch diagnostics          # redacted support bundle
 ```
 
-`--json` on every command, `--verbose`, and **distinct exit codes per failure class**: unresolved, ambiguous, verification-failed, hash-mismatch, missing-prereq, requires-auth, rate-limited, network-error, cancelled.
+`--json` on every command, `--verbose`, and **distinct exit codes per failure class**: unresolved, ambiguous, verification-failed, hash-mismatch, missing-prereq, requires-auth, rate-limited, network-error, configuration-error, cancelled.
 
 ## Target workflow — optimize for this
 

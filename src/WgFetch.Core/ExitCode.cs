@@ -16,5 +16,6 @@ public enum ExitCode
     RequiresAuth = 7,
     RateLimited = 8,
     NetworkError = 9,
+    ConfigurationError = 10,
     Cancelled = 130,
 }

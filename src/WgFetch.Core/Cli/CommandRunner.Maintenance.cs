@@ -7,6 +7,7 @@ using WgFetch.Core.Logging;
 using WgFetch.Core.Model;
 using WgFetch.Core.Output;
 using WgFetch.Core.Prereqs;
+using WgFetch.Core.Progress;
 using WgFetch.Core.Recipes;
 using WgFetch.Core.Targets;
 
@@ -18,6 +19,185 @@ namespace WgFetch.Core.Cli;
 /// </summary>
 public sealed partial class CommandRunner
 {
+    private static readonly string[] ConfigTableHeader = ["SETTING", "VALUE"];
+
+    private async Task<ExitCode> ConfigAsync(
+        ParsedCommandLine parsed,
+        WgFetchConfig config,
+        IReadOnlyList<string> redactionSecrets,
+        bool isInteractiveTerminal,
+        bool plainRendering,
+        CancellationToken cancellationToken)
+    {
+        if (parsed.SubCommand is not null && parsed.Has("--interactive"))
+        {
+            _stderr.WriteLine("wgfetch config: --interactive cannot be combined with a subcommand.");
+            return ExitCode.UsageError;
+        }
+
+        if (parsed.SubCommand is null)
+        {
+            return await InteractiveConfigAsync(
+                config,
+                parsed.Value("--config"),
+                redactionSecrets,
+                isInteractiveTerminal,
+                plainRendering,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        var path = parsed.Value("--config") ?? ConfigFile.DefaultPath;
+        switch (parsed.SubCommand)
+        {
+            case "list":
+                if (parsed.Positional.Count != 0)
+                {
+                    _stderr.WriteLine("wgfetch config list: does not accept arguments.");
+                    return ExitCode.UsageError;
+                }
+
+                var rows = new List<string[]> { ConfigTableHeader };
+                var settings = ConfigSettings.GetRedactedValues(config, redactionSecrets);
+                rows.AddRange(settings.Select(setting => new[] { setting.Name, setting.Value ?? "-" }));
+                Report(RenderTable(rows));
+                foreach (var setting in settings)
+                {
+                    Emit(new JsonEvent { Event = "config", Target = setting.Name, Status = "value", Message = setting.Value ?? "-" });
+                }
+                return ExitCode.Success;
+
+            case "get":
+                if (parsed.Positional.Count != 1)
+                {
+                    _stderr.WriteLine("wgfetch config get: expected exactly one setting name.");
+                    return ExitCode.UsageError;
+                }
+
+                var value = ConfigSettings.GetRedactedValue(config, parsed.Positional[0], out var getError, redactionSecrets);
+                if (getError is not null)
+                {
+                    _stderr.WriteLine($"wgfetch config get: {SecretRedactor.Redact(getError, redactionSecrets)}");
+                    return ExitCode.UsageError;
+                }
+
+                Report(value ?? "-");
+                Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "value", Message = value ?? "-" });
+                return ExitCode.Success;
+
+            case "set":
+                if (parsed.Positional.Count != 2)
+                {
+                    _stderr.WriteLine("wgfetch config set: expected a setting name and value.");
+                    return ExitCode.UsageError;
+                }
+
+                string? setError = null;
+                var setRedactionSecrets = IsConfigCredentialName(parsed.Positional[0])
+                    ? IncludeSecret(redactionSecrets, parsed.Positional[1])
+                    : redactionSecrets;
+                var (updated, setInvalidConfig) = await TryUpdateConfigAsync(
+                    path,
+                    current =>
+                    {
+                        var success = ConfigSettings.TrySet(
+                            current,
+                            parsed.Positional[0],
+                            parsed.Positional[1],
+                            out var latest,
+                            out setError);
+                        return success ? latest : null;
+                    },
+                    setRedactionSecrets,
+                    cancellationToken).ConfigureAwait(false);
+                if (setInvalidConfig is not null)
+                {
+                    _stderr.WriteLine($"wgfetch config set: {setInvalidConfig}");
+                    return ExitCode.ConfigurationError;
+                }
+                if (updated is null)
+                {
+                    _stderr.WriteLine($"wgfetch config set: {SecretRedactor.Redact(setError, setRedactionSecrets)}");
+                    return ExitCode.UsageError;
+                }
+
+                Report($"{parsed.Positional[0]}: saved");
+                Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "saved" });
+                return ExitCode.Success;
+
+            case "unset":
+                if (parsed.Positional.Count != 1)
+                {
+                    _stderr.WriteLine("wgfetch config unset: expected exactly one setting name.");
+                    return ExitCode.UsageError;
+                }
+
+                string? unsetError = null;
+                var (without, unsetInvalidConfig) = await TryUpdateConfigAsync(
+                    path,
+                    current =>
+                    {
+                        var success = ConfigSettings.TryUnset(
+                            current,
+                            parsed.Positional[0],
+                            out var latest,
+                            out unsetError);
+                        return success ? latest : null;
+                    },
+                    redactionSecrets,
+                    cancellationToken).ConfigureAwait(false);
+                if (unsetInvalidConfig is not null)
+                {
+                    _stderr.WriteLine($"wgfetch config unset: {unsetInvalidConfig}");
+                    return ExitCode.ConfigurationError;
+                }
+                if (without is null)
+                {
+                    _stderr.WriteLine($"wgfetch config unset: {SecretRedactor.Redact(unsetError, redactionSecrets)}");
+                    return ExitCode.UsageError;
+                }
+
+                Report($"{parsed.Positional[0]}: unset");
+                Emit(new JsonEvent { Event = "config", Target = parsed.Positional[0], Status = "unset" });
+                return ExitCode.Success;
+
+            default:
+                _stderr.WriteLine(
+                    $"wgfetch config: unknown subcommand '{SecretRedactor.Redact(parsed.SubCommand, redactionSecrets)}' (expected set|get|list|unset).");
+                return ExitCode.UsageError;
+        }
+    }
+
+    private static bool IsConfigCredentialName(string name)
+    {
+        var normalized = name.Replace("-", string.Empty, StringComparison.Ordinal);
+        return SecretSettingNames.Any(setting => string.Equals(
+            setting.Replace("-", string.Empty, StringComparison.Ordinal),
+            normalized,
+            StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<(WgFetchConfig? Updated, string? InvalidConfigMessage)> TryUpdateConfigAsync(
+        string path,
+        Func<WgFetchConfig, WgFetchConfig?> update,
+        IEnumerable<string> redactionSecrets,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var updated = await ConfigFile.TryUpdateAsync(path, update, cancellationToken).ConfigureAwait(false);
+            return (updated, null);
+        }
+        catch (InvalidDataException exception)
+        {
+            return (null, SecretRedactor.Redact(exception.Message, redactionSecrets));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return (null, SecretRedactor.Redact($"unable to update config file '{path}': {exception.Message}", redactionSecrets));
+        }
+    }
+
     private async Task<TargetsDocument> LoadTargetsAsync(RunSettings settings, CancellationToken cancellationToken)
     {
         var path = TargetsPath(settings);
@@ -536,7 +716,7 @@ public sealed partial class CommandRunner
 
         await File.WriteAllTextAsync(
             Path.Combine(directory, "config.json"),
-            JsonSerializer.Serialize(config.Redacted(), ConfigJsonContext.Default.WgFetchConfig),
+            JsonSerializer.Serialize(config.Redacted(settings.Secrets), ConfigJsonContext.Default.WgFetchConfig),
             cancellationToken).ConfigureAwait(false);
 
         var models = await PrereqInstaller.StatusAsync(settings.ModelsRoot, cancellationToken).ConfigureAwait(false);
@@ -612,7 +792,7 @@ public sealed partial class CommandRunner
             return [];
         }
 
-        var document = TargetsFile.Parse(await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false));
+        var document = await TargetsFile.LoadAsync(path, cancellationToken).ConfigureAwait(false);
         return document.Targets.Select(t => t.Name).ToArray();
     }
 

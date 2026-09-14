@@ -1,4 +1,5 @@
 using WgFetch.Core.Targets;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace WgFetch.Core.Tests.Targets;
@@ -195,6 +196,103 @@ public class TargetsFileTests
 
         Assert.Equal(TargetsDocument.CurrentSchemaVersion, doc.Version);
         Assert.Empty(doc.Targets);
+    }
+
+    [Fact]
+    public async Task LoadAsync_MalformedYaml_ThrowsTargetsFileExceptionWithPath()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, $"malformed-{Guid.NewGuid():N}.yaml");
+        const string yaml = "targets: [this is: not valid: yaml:::";
+        await File.WriteAllTextAsync(path, yaml);
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+            Assert.Equal(path, exception.Path);
+            Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("line 1, column 29", exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain('\n', exception.Message);
+            Assert.DoesNotContain("this is: not valid", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Parse_MalformedYaml_ThrowsTargetsFileException()
+    {
+        var exception = Assert.Throws<TargetsFileException>(
+            () => TargetsFile.Parse("targets: [this is: not valid: yaml:::"));
+
+        Assert.Null(exception.Path);
+        Assert.IsAssignableFrom<YamlException>(exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData("version: nope", "invalid-version")]
+    [InlineData("version: 999999999999999999999", "invalid-version")]
+    [InlineData("targets:\n  - name: nina\n    state: typo", "invalid-state")]
+    [InlineData("targets:\n  - name: nina\n    state: []", "invalid-state")]
+    [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp", "invalid-last-attempt")]
+    [InlineData("targets:\n  - name: nina\n    lastAttempt: []", "invalid-last-attempt")]
+    [InlineData("---\nversion: 1\n---\ntargets: []", "invalid-document-count")]
+    [InlineData("? [invalid]\n: value", "invalid-key")]
+    [InlineData("version: {}", "invalid-version")]
+    [InlineData("targets: {}", "invalid-targets")]
+    [InlineData("targets: [nina]", "invalid-target-entry")]
+    [InlineData("targets:\n  - id: AstroStack.NINA", "missing-name")]
+    [InlineData("targets:\n  - name: \"   \"", "missing-name")]
+    [InlineData("[]", "invalid-document-root")]
+    [InlineData("targets:\n  - name: []", "invalid-name")]
+    [InlineData("targets:\n  - name: nina\n    id: []", "invalid-id")]
+    [InlineData("targets:\n  - name: nina\n    componentId: {}", "invalid-component-id")]
+    [InlineData("targets:\n  - name: nina\n    acquiredVersion: []", "invalid-acquired-version")]
+    [InlineData("targets:\n  - name: nina\n    availableVersion: {}", "invalid-available-version")]
+    [InlineData("targets:\n  - name: nina\n    arch: []", "invalid-arch")]
+    [InlineData("targets:\n  - name: nina\n    scope: {}", "invalid-scope")]
+    [InlineData("targets:\n  - name: nina\n    pin: []", "invalid-pin")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: {}", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: [[]]", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: [null]", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    recipe: []", "invalid-recipe")]
+    [InlineData("targets:\n  - name: nina\n    lastError: {}", "invalid-last-error")]
+    public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml, string reasonCode)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, $"invalid-{Guid.NewGuid():N}.yaml");
+        await File.WriteAllTextAsync(path, yaml);
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
+
+            Assert.Equal(path, exception.Path);
+            Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
+            Assert.Contains($"reason: {reasonCode}", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(reasonCode, exception.ReasonCode);
+            Assert.DoesNotContain('\n', exception.Message);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TargetsFileException_WithPathContainingControlCharacters_EscapesThemInMessage()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "malformed.yaml") + "\r\ninjected";
+
+        var exception = new TargetsFileException(
+            path,
+            new FormatException("Invalid targets document."),
+            TargetsFileException.InvalidDocumentReasonCode);
+
+        Assert.DoesNotContain('\n', exception.Message);
+        Assert.DoesNotContain('\r', exception.Message);
+        Assert.Contains("\\r\\n", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

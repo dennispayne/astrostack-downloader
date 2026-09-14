@@ -16,7 +16,12 @@ public sealed record OptionSpec(
     IReadOnlyList<string>? AllowedValues = null);
 
 /// <summary>One wgfetch verb and the options it accepts.</summary>
-public sealed record CommandSpec(string Name, string Summary, IReadOnlyList<OptionSpec> Options, IReadOnlyList<string> SubCommands)
+public sealed record CommandSpec(
+    string Name,
+    string Summary,
+    IReadOnlyList<OptionSpec> Options,
+    IReadOnlyList<string> SubCommands,
+    bool SubCommandOptional = false)
 {
     public bool Accepts(string option) => Options.Any(o => string.Equals(o.Name, option, StringComparison.Ordinal));
 }
@@ -38,6 +43,8 @@ public sealed record ParsedCommandLine
     public bool HelpRequested { get; init; }
 
     public bool VersionRequested { get; init; }
+
+    public bool NoCommandGiven { get; init; }
 
     public bool HasErrors => Errors.Count > 0;
 
@@ -125,6 +132,7 @@ public static class CommandLineParser
         new("import", "Seed targets.yaml from an existing consumer repo", Combine([new OptionSpec("--format", OptionArity.Value, "astrostack-dsc"), new OptionSpec("--winget-repo", OptionArity.Value, "source tree"), new OptionSpec("--output", OptionArity.Value, "output directory")]), []),
         new("refresh", "Update catalog, embeddings and recipe cache", Combine(AcquisitionOptions), []),
         new("prereqs", "Install or report on pinned models", Combine([new OptionSpec("--models-root", OptionArity.Value, "root directory holding pinned models"), new OptionSpec("--models-dir", OptionArity.Value, "deprecated alias for --models-root"), new OptionSpec("--include-llm", OptionArity.Flag, "also fetch Phi-3.5-mini"), new OptionSpec("--dry-run", OptionArity.Flag, "report only")]), ["install", "status"]),
+        new("config", "View or edit persisted settings", Combine([new OptionSpec("--interactive", OptionArity.Flag, "open the interactive configuration menu")]), ["set", "get", "list", "unset"], SubCommandOptional: true),
         new("verify", "Re-hash artifacts against provenance.json", Combine([new OptionSpec("--output", OptionArity.Value, "output directory"), new OptionSpec("--winget-repo", OptionArity.Value, "source tree")]), []),
         new("recipes", "Inspect bundled and cached recipes", Combine([new OptionSpec("--out", OptionArity.Value, "output directory"), new OptionSpec("--cache-dir", OptionArity.Value, "cache directory")]), ["list", "show", "export", "validate"]),
         new("list", "List acquired packages", Combine([new OptionSpec("--output", OptionArity.Value, "output directory"), new OptionSpec("--winget-repo", OptionArity.Value, "source tree")]), []),
@@ -267,7 +275,7 @@ public static class CommandLineParser
             errors.Add("no command given");
         }
 
-        if (FindCommand(command) is { SubCommands.Count: > 0 } withSubs && subCommand is null && !help && !version)
+        if (FindCommand(command) is { SubCommandOptional: false, SubCommands.Count: > 0 } withSubs && subCommand is null && !help && !version)
         {
             errors.Add($"command '{command}' requires a subcommand ({string.Join('|', withSubs.SubCommands)})");
         }
@@ -286,6 +294,7 @@ public static class CommandLineParser
             Errors = errors,
             HelpRequested = help,
             VersionRequested = version,
+            NoCommandGiven = command is null && !help && !version,
         };
     }
 
@@ -345,7 +354,9 @@ public static class CommandLineParser
             return writer.ToString();
         }
 
-        var usage = spec.SubCommands.Count > 0
+        var usage = spec.SubCommandOptional
+            ? $"Usage: wgfetch {spec.Name} [{string.Join('|', spec.SubCommands)}] [options]"
+            : spec.SubCommands.Count > 0
             ? $"Usage: wgfetch {spec.Name} {string.Join('|', spec.SubCommands)} [options]"
             : $"Usage: wgfetch {spec.Name} [<name>...] [options]";
         writer.WriteLine(spec.Summary);

@@ -38,6 +38,15 @@ public sealed class SecretRedactorTests
         Assert.DoesNotContain("hunter2-secret-value", redacted, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Redacts_a_short_explicitly_registered_secret_value()
+    {
+        var redacted = SecretRedactor.Redact("provider configured with abc now", ["abc"]);
+
+        Assert.DoesNotContain("abc", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("https://api.search.example/search?q=nina&key=supersecretvalue", "supersecretvalue")]
     [InlineData("https://api.example/v1?access_token=abcdef123456", "abcdef123456")]
@@ -75,6 +84,175 @@ public sealed class SecretRedactorTests
         var redacted = SecretRedactor.Redact("searching via https://searx.example/search?q=nina&key=topsecretkey now");
 
         Assert.DoesNotContain("topsecretkey", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacts_mixed_case_scheme_urls_embedded_in_free_text()
+    {
+        var redacted = SecretRedactor.Redact("searching via HTTPS://api.example/search?api_key=topsecretkey now");
+
+        Assert.DoesNotContain("topsecretkey", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacts_form_encoded_known_secrets_inside_urls_embedded_in_free_text()
+    {
+        var redacted = SecretRedactor.Redact(
+            "endpoint=https://api.example/v1?custom_token=abc+def",
+            ["abc def"]);
+
+        Assert.DoesNotContain("abc+def", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc def", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacts_an_encoded_known_secret_in_a_valueless_query_component()
+    {
+        var redacted = SecretRedactor.RedactUrl("https://host.example/?%7A%71%78", ["zqx"]);
+
+        Assert.DoesNotContain("%7A%71%78", redacted, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("zqx", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacts_an_encoded_known_secret_in_a_query_parameter_name()
+    {
+        var redacted = SecretRedactor.RedactUrl("https://host.example/?%61%62%63=value", ["abc"]);
+
+        Assert.DoesNotContain("%61%62%63", redacted, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("abc", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_redacts_a_token_shaped_value_in_the_path_even_when_not_a_known_secret()
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://vendor.example/artifacts/{OpenAiKey}/model.bin");
+
+        Assert.DoesNotContain(OpenAiKey, redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("api-key")]
+    [InlineData("API-Key")]
+    [InlineData("api_key")]
+    [InlineData("x-api-key")]
+    [InlineData("X_API_KEY")]
+    [InlineData("Access-Token")]
+    public void RedactUrl_redacts_an_api_key_query_parameter_without_a_registered_secret(string parameterName)
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://host.example/?{parameterName}=arbitrary-secret");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("access_token")]
+    [InlineData("token")]
+    [InlineData("api-key")]
+    public void RedactUrl_redacts_a_sensitive_fragment_parameter_without_a_registered_secret(string parameterName)
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://host.example/callback#{parameterName}=arbitrary-secret&state=xyz");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+        Assert.Contains("state=xyz", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_redacts_a_sensitive_parameter_in_a_question_mark_prefixed_fragment()
+    {
+        var redacted = SecretRedactor.RedactUrl("https://host.example/callback#?access_token=arbitrary-secret");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+        Assert.Contains("#?access_token=", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_redacts_sensitive_parameters_from_non_http_absolute_urls()
+    {
+        var redacted = SecretRedactor.RedactUrl("file:///tmp/x?api_key=arbitrary-secret");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_leaves_windows_drive_paths_untouched()
+    {
+        const string path = @"C:\models\x?y";
+
+        Assert.Equal(path, SecretRedactor.RedactUrl(path));
+    }
+
+    [Fact]
+    public void RedactUrl_leaves_a_non_sensitive_fragment_untouched()
+    {
+        const string url = "https://host.example/docs#installation";
+
+        Assert.Equal(url, SecretRedactor.RedactUrl(url));
+    }
+
+    [Fact]
+    public void RedactUrl_redacts_a_github_token_shaped_fragment()
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://vendor.example/download#{GitHubToken}");
+
+        Assert.DoesNotContain(GitHubToken, redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_preserves_sensitive_parameter_redaction_in_a_fragment_that_also_contains_a_known_secret()
+    {
+        // The known-secret pass over the fragment must operate on the already-redacted fragment,
+        // not the raw original one, or it would restore the unregistered "access_token" value while
+        // only redacting the registered "known-secret" value in "state".
+        var redacted = SecretRedactor.RedactUrl(
+            "https://host.example/callback#access_token=attacker-value&state=known-secret",
+            ["known-secret"]);
+
+        Assert.DoesNotContain("attacker-value", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("known-secret", redacted, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("X-Amz-Signature")]
+    [InlineData("custom_token")]
+    public void RedactUrl_redacts_vendor_and_custom_credential_parameter_variants(string parameterName)
+    {
+        var redacted = SecretRedactor.RedactUrl($"https://host.example/asset?{parameterName}=arbitrary-secret&q=nina");
+
+        Assert.DoesNotContain("arbitrary-secret", redacted, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
+        Assert.Contains("q=nina", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactUrl_does_not_treat_an_unrelated_parameter_merely_ending_in_a_sensitive_substring_as_sensitive()
+    {
+        // "monkey" ends with "key" but is not a credential parameter: a bare substring-suffix match
+        // (without a word-boundary check) would wrongly redact it.
+        const string url = "https://host.example/zoo?animal=monkey&q=nina";
+
+        Assert.Equal(url, SecretRedactor.RedactUrl(url));
+    }
+
+    [Fact]
+    public void Redact_matches_a_lowercase_percent_encoded_known_secret_outside_a_url()
+    {
+        // Uri.EscapeDataString produces uppercase hex ("%2F"); a caller rendering the same secret
+        // with lowercase hex ("%2f") outside an HTTP URL must still be caught.
+        var redacted = SecretRedactor.Redact("path=a%2fb", ["a/b"]);
+
+        Assert.DoesNotContain("a%2fb", redacted, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(SecretRedactor.Placeholder, redacted, StringComparison.Ordinal);
     }
 
     [Fact]
