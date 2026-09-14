@@ -13,6 +13,10 @@ namespace WgFetch.Core.Cli;
 /// </summary>
 public sealed record RunSettings
 {
+    internal const string AiKeyEnvironmentVariable = "WGFETCH_AI_KEY";
+    internal const string SearchKeyEnvironmentVariable = "WGFETCH_SEARCH_KEY";
+    internal const string GithubTokenEnvironmentVariable = "GITHUB_TOKEN";
+
     public required string OutputDirectory { get; init; }
 
     public required string CacheDirectory { get; init; }
@@ -130,8 +134,8 @@ public sealed record RunSettings
             AiMode = ParseAiMode(First(parsed.Value("--ai-mode"), config.AiMode, "local")!),
             AiEndpoint = First(parsed.Value("--ai-endpoint"), Env("WGFETCH_AI_ENDPOINT"), config.AiEndpoint),
             AiModel = First(parsed.Value("--ai-model"), config.AiModel),
-            AiKey = First(parsed.Value("--ai-key"), Env("WGFETCH_AI_KEY"), config.AiKey),
-            GithubToken = First(parsed.Value("--github-token"), Env("GITHUB_TOKEN"), config.GithubToken),
+            AiKey = First(parsed.Value("--ai-key"), Env(AiKeyEnvironmentVariable), config.AiKey),
+            GithubToken = First(parsed.Value("--github-token"), Env(GithubTokenEnvironmentVariable), config.GithubToken),
             ParallelDownloads = Clamp(
                 parsed.IntValue("--parallel-downloads") ?? config.ParallelDownloads ?? 3,
                 1,
@@ -139,7 +143,7 @@ public sealed record RunSettings
             MaxPerHost = Clamp(parsed.IntValue("--max-per-host") ?? config.MaxPerHost ?? 2, 1, 8),
             SearchProvider = First(parsed.Value("--search-provider"), config.SearchProvider, "duckduckgo")!,
             SearchEndpoint = First(parsed.Value("--search-endpoint"), config.SearchEndpoint),
-            SearchKey = First(parsed.Value("--search-key"), Env("WGFETCH_SEARCH_KEY"), config.SearchKey),
+            SearchKey = First(parsed.Value("--search-key"), Env(SearchKeyEnvironmentVariable), config.SearchKey),
             LogLevel = LogLevelParser.Parse(First(parsed.Value("--log-level"), config.LogLevel)),
             LogFile = parsed.Value("--log-file"),
             Json = parsed.Has("--json"),

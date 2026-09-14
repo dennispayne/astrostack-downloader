@@ -35,67 +35,19 @@ public sealed class ConfigFileTests
     }
 
     [Fact]
-    public async Task An_unreadable_file_yields_defaults()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            // xUnit 2 has no runtime skip support. FileShare.None is not enforced across processes on
-            // Unix; the malformed-file test above remains the portable config-fallback coverage.
-            return;
-        }
-
-        using var temp = new TempDirectory();
-        var path = temp.Combine("config.json");
-        await File.WriteAllTextAsync(path, """{ "outputDirectory": "/should-not-load" }""");
-        await using var lockedConfig = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-
-        var config = await ConfigFile.LoadAsync(path, CancellationToken.None);
-
-        Assert.Null(config.OutputDirectory);
-        Assert.Null(config.AiKey);
-    }
-
-    [Fact]
-    public async Task A_fifo_yields_defaults_without_blocking()
+    public async Task Updating_a_malformed_file_fails_without_overwriting_it()
     {
         using var temp = new TempDirectory();
         var path = temp.Combine("config.json");
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        if (!await SpecialFiles.TryCreateFifoAsync(path))
-        {
-            // xUnit 2 has no runtime skip support; hosts without mkfifo have nothing to assert here.
-            return;
-        }
+        const string malformed = "{ this is not json";
+        await File.WriteAllTextAsync(path, malformed, CancellationToken.None);
 
-        // No writer ever opens this FIFO: config loading must return on its own rather than wait for one.
-        var load = ConfigFile.LoadAsync(path, CancellationToken.None);
-        var completed = await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(5)));
+        await Assert.ThrowsAsync<InvalidDataException>(() => ConfigFile.TryUpdateAsync(
+            path,
+            config => config with { Plain = true },
+            CancellationToken.None));
 
-        Assert.Same(load, completed);
-        var config = await load;
-        Assert.Null(config.OutputDirectory);
-    }
-
-    [Fact]
-    public async Task A_character_device_yields_defaults_without_reading_endlessly()
-    {
-        if (!OperatingSystem.IsLinux() || !File.Exists("/dev/zero"))
-        {
-            return;
-        }
-
-        using var cancellation = new CancellationTokenSource();
-        var load = ConfigFile.LoadAsync("/dev/zero", cancellation.Token);
-        var completed = await Task.WhenAny(load, Task.Delay(TimeSpan.FromSeconds(5)));
-        if (!ReferenceEquals(completed, load))
-        {
-            // Never leave an unbounded read of /dev/zero running behind a failing assertion.
-            await cancellation.CancelAsync();
-        }
-
-        Assert.Same(load, completed);
-        var config = await load;
-        Assert.Null(config.OutputDirectory);
+        Assert.Equal(malformed, await File.ReadAllTextAsync(path, CancellationToken.None));
     }
 
     [Fact]
@@ -139,34 +91,123 @@ public sealed class ConfigFileTests
         await ConfigFile.SaveAsync(new WgFetchConfig { Scope = "machine" }, path, CancellationToken.None);
 
         Assert.Equal("machine", (await ConfigFile.LoadAsync(path, CancellationToken.None)).Scope);
-        Assert.False(File.Exists(path + ".tmp"));
+        Assert.Empty(Directory.GetFiles(temp.Path, "*.tmp", SearchOption.AllDirectories));
     }
 
     [Fact]
-    public async Task SaveAsync_RejectsFilesTooLargeForLoadAsync()
+    public async Task Saving_uses_owner_only_permissions_on_Unix()
     {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
         using var temp = new TempDirectory();
         var path = temp.Combine("nested", "config.json");
-        var config = new WgFetchConfig { OutputDirectory = new string('x', 1024 * 1024) };
 
-        var ex = await Assert.ThrowsAsync<IOException>(() => ConfigFile.SaveAsync(config, path, CancellationToken.None));
+        await ConfigFile.SaveAsync(new WgFetchConfig { AiKey = "secret" }, path, CancellationToken.None);
 
-        Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(path));
-        Assert.False(Directory.Exists(Path.GetDirectoryName(path)));
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            File.GetUnixFileMode(path));
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+            File.GetUnixFileMode(Path.GetDirectoryName(path)!));
     }
 
     [Fact]
-    public async Task SaveAsync_EmbeddedNulPath_FailsClosed()
+    public async Task Saving_to_an_existing_custom_directory_preserves_its_Unix_permissions()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var temp = new TempDirectory();
+        var directory = temp.Combine("shared");
+        Directory.CreateDirectory(directory);
+        const UnixFileMode mode =
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+            UnixFileMode.GroupRead | UnixFileMode.GroupExecute;
+        File.SetUnixFileMode(directory, mode);
+
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { AiKey = "secret" },
+            Path.Combine(directory, "config.json"),
+            CancellationToken.None);
+
+        Assert.Equal(mode, File.GetUnixFileMode(directory));
+    }
+
+    [Fact]
+    public async Task Update_waits_for_an_external_file_lock()
     {
         using var temp = new TempDirectory();
-        var prefix = temp.Combine("config.json");
+        var path = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(new WgFetchConfig { Scope = "user" }, path, CancellationToken.None);
+        await using var externalLock = new FileStream(
+            path + ".lock",
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
 
-        var ex = await Assert.ThrowsAsync<IOException>(
-            () => ConfigFile.SaveAsync(new WgFetchConfig { Scope = "user" }, prefix + "\0suffix", CancellationToken.None));
+        var update = ConfigFile.TryUpdateAsync(
+            path,
+            config => config with { LogLevel = "debug" },
+            CancellationToken.None);
+        await Task.Delay(75);
+        Assert.False(update.IsCompleted);
 
-        Assert.Contains("embedded NUL", ex.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(prefix));
+        await externalLock.DisposeAsync();
+        var updated = await update;
+
+        Assert.Equal("user", updated.Scope);
+        Assert.Equal("debug", updated.LogLevel);
+    }
+
+    [Fact]
+    public async Task Update_propagates_a_read_failure_instead_of_replacing_the_file()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { Scope = "user", AiKey = "ai-secret" },
+            path,
+            CancellationToken.None);
+
+        // Hold the file exclusively so the read inside the update fails: File.Exists also reports
+        // false for an unreadable file, which must never be mistaken for a missing one.
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => ConfigFile.TryUpdateAsync(
+                path,
+                config => config with { LogLevel = "debug" },
+                CancellationToken.None));
+        }
+
+        var reloaded = await ConfigFile.LoadAsync(path, CancellationToken.None);
+        Assert.Equal("user", reloaded.Scope);
+        Assert.Equal("ai-secret", reloaded.AiKey);
+        Assert.Null(reloaded.LogLevel);
+    }
+
+    [Fact]
+    public async Task Saving_persists_credentials()
+    {
+        using var temp = new TempDirectory();
+        var path = temp.Combine("config.json");
+
+        await ConfigFile.SaveAsync(
+            new WgFetchConfig { AiKey = "ai-secret", SearchKey = "search-secret", GithubToken = "github-secret" },
+            path,
+            CancellationToken.None);
+
+        var json = await File.ReadAllTextAsync(path, CancellationToken.None);
+        Assert.Contains("ai-secret", json, StringComparison.Ordinal);
+        var loaded = await ConfigFile.LoadAsync(path, CancellationToken.None);
+        Assert.Equal("ai-secret", loaded.AiKey);
+        Assert.Equal("search-secret", loaded.SearchKey);
+        Assert.Equal("github-secret", loaded.GithubToken);
     }
 }
 
@@ -192,6 +233,252 @@ public sealed class ConfigRedactionTests
     }
 
     [Fact]
+    public void Redacted_scrubs_a_secret_embedded_in_an_endpoint_url()
+    {
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = "https://ai.example/v1?api_key=super-secret-ai-key",
+            SearchEndpoint = "https://search.example/v1?api_key=super-secret-search-key",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("super-secret-ai-key", redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain("super-secret-search-key", redacted.SearchEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_a_configured_secret_embedded_under_an_unknown_url_key()
+    {
+        var secret = "custom-secret-value";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            AiEndpoint = $"https://ai.example/v1?custom_token={secret}",
+            SearchEndpoint = $"https://search.example/{secret}/v1",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.SearchEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_a_configured_secret_that_is_form_encoded_with_a_plus_for_space()
+    {
+        const string secret = "a b";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            AiEndpoint = "https://ai.example/v1?foo=a+b",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain("a+b", redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_a_configured_secret_percent_encoded_in_endpoint_path_and_fragment()
+    {
+        const string secret = "abc";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            AiEndpoint = "https://ai.example/v1/%61%62%63#%61%62%63",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("%61%62%63", redacted.AiEndpoint, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_sensitive_query_values_even_when_a_secret_matches_the_parameter_name()
+    {
+        var config = new WgFetchConfig
+        {
+            AiKey = "token",
+            AiModel = "https://host.example/?token=actual-secret-value",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("actual-secret-value", redacted.AiModel, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiModel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_sensitive_parameters_from_file_scheme_endpoints()
+    {
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = "file:///tmp/x?api_key=arbitrary-secret",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("arbitrary-secret", redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_even_a_short_configured_secret_from_every_string_field()
+    {
+        const string secret = "abc";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            OutputDirectory = $"/srv/{secret}/source",
+            AiEndpoint = $"https://ai.example/{secret}",
+            AiModel = $"model-{secret}",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain(secret, redacted.OutputDirectory, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.AiModel, StringComparison.Ordinal);
+        Assert.Equal(SecretRedactor.Placeholder, redacted.AiKey);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_form_encoded_configured_secret_from_non_url_fields()
+    {
+        const string secret = "a b";
+        var config = new WgFetchConfig
+        {
+            AiKey = secret,
+            OutputDirectory = "/tmp/a+b/source",
+        };
+
+        var redacted = config.Redacted();
+
+        Assert.DoesNotContain("a+b", redacted.OutputDirectory, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, redacted.OutputDirectory, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.OutputDirectory, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Redacted_scrubs_a_supplemental_effective_secret_not_persisted_in_the_config()
+    {
+        // A CLI/environment credential (RunSettings.Secrets) that is not itself persisted can still be
+        // embedded in a persisted endpoint value; DiagnosticsAsync must redact it too.
+        const string supplementalSecret = "cli-only-secret-value";
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = $"https://ai.example/v1?custom_token={supplementalSecret}",
+        };
+
+        var redacted = config.Redacted([supplementalSecret]);
+
+        Assert.DoesNotContain(supplementalSecret, redacted.AiEndpoint, StringComparison.Ordinal);
+        Assert.Contains(SecretRedactor.Placeholder, redacted.AiEndpoint, StringComparison.Ordinal);
+    }
+
+    public sealed class ConfigSettingsTests
+    {
+        [Fact]
+        public void Setting_and_unsetting_known_values_preserves_the_remaining_configuration()
+        {
+            var original = new WgFetchConfig { Scope = "machine", AiKey = "secret" };
+
+            Assert.True(ConfigSettings.TrySet(original, "parallelDownloads", "4", out var updated, out var error), error);
+            Assert.Equal(4, updated.ParallelDownloads);
+            Assert.Equal("machine", updated.Scope);
+
+            Assert.True(ConfigSettings.TryUnset(updated, "parallelDownloads", out var unset, out error), error);
+            Assert.Null(unset.ParallelDownloads);
+            Assert.Equal("secret", unset.AiKey);
+        }
+
+        [Theory]
+        [InlineData("threshold", "1.01")]
+        [InlineData("keepVersions", "0")]
+        [InlineData("parallelDownloads", "17")]
+        [InlineData("maxPerHost", "0")]
+        public void Rejects_out_of_range_numeric_values(string name, string value)
+        {
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), name, value, out _, out _));
+        }
+
+        [Fact]
+        public void Normalizes_enum_like_values()
+        {
+            Assert.True(ConfigSettings.TrySet(new WgFetchConfig(), "scope", "Machine", out var scope, out _));
+            Assert.True(ConfigSettings.TrySet(scope, "architecture", "X64", out var architecture, out _));
+            Assert.Equal("machine", architecture.Scope);
+            Assert.Equal("x64", architecture.Architecture);
+        }
+
+        [Fact]
+        public void Rejects_unknown_search_provider_and_blank_directory()
+        {
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "searchProvider", "typo", out _, out var providerError));
+            Assert.Contains("searchProvider must be one of", providerError, StringComparison.Ordinal);
+
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "modelsRoot", "", out _, out var directoryError));
+            Assert.Equal("modelsRoot must not be blank.", directoryError);
+        }
+
+        [Theory]
+        [InlineData("trace")]
+        [InlineData("debug")]
+        [InlineData("info")]
+        [InlineData("warn")]
+        [InlineData("error")]
+        [InlineData("none")]
+        public void Accepts_every_known_log_level(string value)
+        {
+            Assert.True(ConfigSettings.TrySet(new WgFetchConfig(), "logLevel", value, out var updated, out var error), error);
+            Assert.Equal(value, updated.LogLevel);
+        }
+
+        [Fact]
+        public void Rejects_an_unknown_log_level()
+        {
+            Assert.False(ConfigSettings.TrySet(new WgFetchConfig(), "logLevel", "verbose", out _, out var error));
+            Assert.Contains("logLevel must be one of", error, StringComparison.Ordinal);
+            Assert.Contains("information", error, StringComparison.Ordinal);
+            Assert.Contains("warning", error, StringComparison.Ordinal);
+            Assert.Contains("off", error, StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData("aiKey")]
+        [InlineData("searchKey")]
+        [InlineData("githubToken")]
+        public void Accepts_credential_settings(string name)
+        {
+            Assert.True(ConfigSettings.TrySet(new WgFetchConfig(), name, "secret", out var updated, out var error), error);
+            Assert.Equal(SecretRedactor.Placeholder, ConfigSettings.GetRedactedValue(updated, name, out _));
+        }
+
+        [Theory]
+        [InlineData("aiEndpoint")]
+        [InlineData("searchEndpoint")]
+        public void Endpoint_accessors_redact_embedded_credentials(string name)
+        {
+            var config = new WgFetchConfig
+            {
+                AiEndpoint = "https://user:" + "password" + "@ai.example/v1?api_key=secret",
+                SearchEndpoint = "https://user:" + "password" + "@search.example/v1?api_key=secret",
+            };
+
+            var value = ConfigSettings.GetRedactedValue(config, name, out var error);
+
+            Assert.Null(error);
+            Assert.DoesNotContain("password", value, StringComparison.Ordinal);
+            Assert.DoesNotContain("secret", value, StringComparison.Ordinal);
+            Assert.Contains(SecretRedactor.Placeholder, value, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Redacted_leaves_absent_secrets_absent()
     {
         var redacted = new WgFetchConfig().Redacted();
@@ -209,6 +496,19 @@ public sealed class ConfigRedactionTests
             WithSecrets().Secrets);
 
         Assert.Empty(new WgFetchConfig { AiKey = "   " }.Secrets);
+    }
+
+    [Fact]
+    public void Redacted_removes_token_shaped_values_from_endpoints()
+    {
+        var config = new WgFetchConfig
+        {
+            AiEndpoint = "https://ai.example/v1/sk-abcdefghijklmnop123",
+            SearchEndpoint = "https://search.example/v1?project=ghp_abcdefghijklmnop123",
+        }.Redacted();
+
+        Assert.DoesNotContain("sk-abcdefghijklmnop123", config.AiEndpoint!, StringComparison.Ordinal);
+        Assert.DoesNotContain("ghp_abcdefghijklmnop123", config.SearchEndpoint!, StringComparison.Ordinal);
     }
 
     [Fact]

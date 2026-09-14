@@ -90,19 +90,69 @@ public sealed record WgFetchConfig
         }
     }
 
-    /// <summary>Returns a copy with every secret replaced, for diagnostics bundles.</summary>
-    public WgFetchConfig Redacted() => this with
+    /// <summary>
+    /// Returns a copy with every secret replaced, for diagnostics bundles, <c>config get</c> and
+    /// <c>config list</c>. Beyond the three dedicated credential fields, free-text values such as
+    /// <c>aiEndpoint</c>/<c>searchEndpoint</c> can themselves embed a token or basic-auth userinfo
+    /// (for example <c>******host/...</c> or <c>?api_key=...</c>), so they are run through
+    /// the same <see cref="Logging.SecretRedactor"/> used for logs (docs/REQUIREMENTS.md, "Privacy").
+    /// </summary>
+    /// <param name="supplementalSecrets">
+    /// Additional effective secrets to redact beyond this config's own <see cref="Secrets"/>, such as
+    /// CLI/environment credentials from <c>RunSettings.Secrets</c> that are not persisted here but may
+    /// still be embedded in a persisted endpoint value.
+    /// </param>
+    public WgFetchConfig Redacted(IEnumerable<string>? supplementalSecrets = null)
     {
-        AiKey = string.IsNullOrEmpty(AiKey) ? AiKey : Logging.SecretRedactor.Placeholder,
-        SearchKey = string.IsNullOrEmpty(SearchKey) ? SearchKey : Logging.SecretRedactor.Placeholder,
-        GithubToken = string.IsNullOrEmpty(GithubToken) ? GithubToken : Logging.SecretRedactor.Placeholder,
-    };
+        var secrets = Secrets
+            .Concat(supplementalSecrets ?? [])
+            .Where(secret => !string.IsNullOrWhiteSpace(secret))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        string? Redact(string? value)
+        {
+            if (value is null)
+            {
+                return null;
+            }
+
+            // SecretRedactor.Redact runs URL-aware redaction before replacing known secrets and also
+            // matches raw, percent-encoded and form-encoded spellings of those known secrets.
+            return Logging.SecretRedactor.Redact(value, secrets);
+        }
+
+        // Endpoints are URLs that may carry a configured credential as a query value or userinfo;
+        // every absolute endpoint URI, including file:, gets URL-aware parameter redaction before the
+        // generic pass catches configured secrets and token-shaped values in arbitrary text.
+        string? RedactEndpoint(string? value) =>
+            value is not null && Uri.TryCreate(value, UriKind.Absolute, out _)
+                ? Redact(Logging.SecretRedactor.RedactUrl(value, secrets))
+                : Redact(value);
+
+        return this with
+        {
+            OutputDirectory = Redact(OutputDirectory),
+            CacheDirectory = Redact(CacheDirectory),
+            ModelsRoot = Redact(ModelsRoot),
+            Architecture = Redact(Architecture),
+            Scope = Redact(Scope),
+            AiMode = Redact(AiMode),
+            AiEndpoint = RedactEndpoint(AiEndpoint),
+            AiModel = Redact(AiModel),
+            AiKey = string.IsNullOrEmpty(AiKey) ? AiKey : Logging.SecretRedactor.Placeholder,
+            SearchProvider = Redact(SearchProvider),
+            SearchEndpoint = RedactEndpoint(SearchEndpoint),
+            SearchKey = string.IsNullOrEmpty(SearchKey) ? SearchKey : Logging.SecretRedactor.Placeholder,
+            GithubToken = string.IsNullOrEmpty(GithubToken) ? GithubToken : Logging.SecretRedactor.Placeholder,
+            LogLevel = Redact(LogLevel),
+        };
+    }
 }
 
 /// <summary>Loads and saves <see cref="WgFetchConfig"/>; a missing or malformed file is never fatal.</summary>
 public static class ConfigFile
 {
-    private const int MaxConfigBytes = 1024 * 1024;
+    private static readonly TimeSpan LockRetryDelay = TimeSpan.FromMilliseconds(25);
 
     public static string DefaultPath => Path.Combine(WgFetchPaths.RootDirectory, "config.json");
 
@@ -114,17 +164,14 @@ public static class ConfigFile
             return new WgFetchConfig();
         }
 
+        await using var stream = File.OpenRead(target);
         try
         {
-            // File.Exists is true for a FIFO too, and opening one with the managed reader blocks until a
-            // writer arrives. Config is read on every invocation — including the cosmetic no-command
-            // landing view — so a special file here must fail closed to defaults, never hang.
-            var text = await RegularFileText
-                .ReadAllTextAsync(target, MaxConfigBytes, cancellationToken)
-                .ConfigureAwait(false);
-            return JsonSerializer.Deserialize(text, ConfigJsonContext.Default.WgFetchConfig) ?? new WgFetchConfig();
+            return await JsonSerializer
+                .DeserializeAsync(stream, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
+                .ConfigureAwait(false) ?? new WgFetchConfig();
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        catch (JsonException)
         {
             return new WgFetchConfig();
         }
@@ -132,22 +179,160 @@ public static class ConfigFile
 
     public static async Task SaveAsync(WgFetchConfig config, string path, CancellationToken cancellationToken)
     {
-        SafeUserFile.ThrowIfPathContainsNul(path);
+        await using var transactionLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
+        await SaveUnlockedAsync(config, path, cancellationToken).ConfigureAwait(false);
+    }
 
-        using var content = SafeUserFile.CreateBoundedBuffer(MaxConfigBytes, "config");
-        await JsonSerializer
-            .SerializeAsync(content, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
-            .ConfigureAwait(false);
-
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
-        var temp = path + ".tmp";
-        content.Position = 0;
-        await using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+    /// <summary>
+    /// Atomically applies a read-modify-write update. Returns <see langword="null"/> when
+    /// <paramref name="update"/> rejects the current config, but throws <see cref="InvalidDataException"/>
+    /// when an existing config file is malformed so the caller never overwrites it with defaults.
+    /// </summary>
+    public static async Task<WgFetchConfig?> TryUpdateAsync(
+        string path,
+        Func<WgFetchConfig, WgFetchConfig?> update,
+        CancellationToken cancellationToken)
+    {
+        await using var transactionLock = await AcquireLockAsync(path, cancellationToken).ConfigureAwait(false);
+        var current = await LoadForUpdateAsync(path, cancellationToken).ConfigureAwait(false);
+        var updated = update(current);
+        if (updated is null)
         {
-            await content.CopyToAsync(stream, cancellationToken).ConfigureAwait(false);
+            return null;
         }
 
-        File.Move(temp, path, overwrite: true);
+        await SaveUnlockedAsync(updated, path, cancellationToken).ConfigureAwait(false);
+        return updated;
+    }
+
+    /// <summary>
+    /// Reads the config for a read-modify-write cycle. Unlike <see cref="LoadAsync"/>, which is
+    /// deliberately lenient, only a genuinely missing file yields defaults: an existing file we fail to
+    /// read (for example an ACL or sharing failure, which <see cref="File.Exists"/> also reports as
+    /// missing) propagates instead of being replaced by the caller's write, and malformed JSON is
+    /// surfaced instead of being collapsed to defaults, either of which would otherwise silently
+    /// discard persisted settings and credentials.
+    /// </summary>
+    private static async Task<WgFetchConfig> LoadForUpdateAsync(string path, CancellationToken cancellationToken)
+    {
+        FileStream stream;
+        try
+        {
+            stream = File.OpenRead(path);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return new WgFetchConfig();
+        }
+
+        await using (stream.ConfigureAwait(false))
+        {
+            try
+            {
+                return await JsonSerializer
+                    .DeserializeAsync(stream, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
+                    .ConfigureAwait(false) ?? new WgFetchConfig();
+            }
+            catch (JsonException exception)
+            {
+                throw new InvalidDataException(
+                    $"Existing config file '{path}' is malformed; fix or remove it before changing settings.",
+                    exception);
+            }
+        }
+    }
+
+    private static async Task SaveUnlockedAsync(
+        WgFetchConfig config,
+        string path,
+        CancellationToken cancellationToken)
+    {
+        EnsureProtectedDirectory(path);
+
+        var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                BufferSize = 4096,
+                Options = FileOptions.Asynchronous,
+            };
+
+            if (!OperatingSystem.IsWindows())
+            {
+                options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            }
+
+            await using (var stream = new FileStream(temp, options))
+            {
+                await JsonSerializer
+                    .SerializeAsync(stream, config, ConfigJsonContext.Default.WgFetchConfig, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            File.Move(temp, path, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temp);
+        }
+    }
+
+    private static async Task<FileStream> AcquireLockAsync(string path, CancellationToken cancellationToken)
+    {
+        var fullPath = Path.GetFullPath(path);
+        EnsureProtectedDirectory(fullPath);
+        var lockPath = fullPath + ".lock";
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                return new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.Asynchronous);
+            }
+            catch (IOException exception) when (FileLockContention.IsContention(exception))
+            {
+                await Task.Delay(LockRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static void EnsureProtectedDirectory(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath)!;
+        var existed = Directory.Exists(directory);
+        Directory.CreateDirectory(directory);
+        // The default directory is dedicated to wgfetch credentials and is always private. A caller
+        // may place --config in an existing shared directory, whose permissions we must not rewrite;
+        // the config file itself is still replaced with owner-only permissions.
+        if (!OperatingSystem.IsWindows() &&
+            (!existed || string.Equals(fullPath, Path.GetFullPath(DefaultPath), StringComparison.Ordinal)))
+        {
+            File.SetUnixFileMode(
+                directory,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 }
 

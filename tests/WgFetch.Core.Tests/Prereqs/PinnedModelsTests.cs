@@ -1,6 +1,9 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using WgFetch.Core.Prereqs;
+using WgFetch.Core.Tests.Support;
 using Xunit;
+using Xunit.Sdk;
 
 namespace WgFetch.Core.Tests.Prereqs;
 
@@ -160,5 +163,531 @@ public sealed class PinnedModelsTests
         Assert.False(unpinned.IsPinned);
         Assert.False(blank.IsPinned);
         Assert.False((PinnedModels.Embedding with { Assets = [unpinned] }).FullyPinned);
+    }
+
+    [Fact]
+    public async Task Selective_dry_run_only_reports_the_requested_pinned_model()
+    {
+        using var temp = new TempDirectory();
+        var installer = new PrereqInstaller(new StubHttpGateway());
+
+        var selected = new HashSet<string>([PinnedModels.EmbeddingModelId], StringComparer.Ordinal);
+        var result = await installer.InstallAsync(temp.Path, selected, dryRun: true, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains(result.Messages, message => message.Contains(PinnedModels.EmbeddingModelId, StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Messages, message => message.Contains(PinnedModels.LanguageModelId, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Selective_install_ignores_unknown_model_ids()
+    {
+        using var temp = new TempDirectory();
+        var installer = new PrereqInstaller(new StubHttpGateway());
+
+        var result = await installer.InstallAsync(temp.Path, new HashSet<string>(["unknown"]), dryRun: true, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Empty(result.Messages);
+    }
+
+    [Theory]
+    [InlineData("../outside")]
+    [InlineData("../../outside")]
+    public async Task Status_rejects_a_model_id_that_escapes_the_models_root(string maliciousId)
+    {
+        using var temp = new TempDirectory();
+        var model = TestModel(maliciousId, "https://huggingface.co/test/model.bin", "bytes"u8.ToArray());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PrereqInstaller.StatusAsync(temp.Path, [model], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Status_rejects_an_asset_relative_path_that_escapes_the_model_directory()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "bytes"u8.ToArray();
+        var model = new PinnedModel(
+            "escaping-asset", "escaping-asset", "test/repository", "revision", IsLanguageModel: false,
+            [new ModelAsset("../../outside.bin", "https://huggingface.co/test/model.bin", bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PrereqInstaller.StatusAsync(temp.Path, [model], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Status_rejects_an_existing_asset_symlink()
+    {
+        using var temp = new TempDirectory();
+        var modelDirectory = temp.Combine("demo-model");
+        Directory.CreateDirectory(modelDirectory);
+        var outside = temp.Combine("outside.bin");
+        await File.WriteAllTextAsync(outside, "outside", CancellationToken.None);
+        if (!TryCreateFileSymlink(Path.Combine(modelDirectory, "model.bin"), outside))
+        {
+            throw SkipException.ForSkip("File symlinks are not supported by this platform or test environment.");
+        }
+
+        var model = TestModel("demo-model", "https://huggingface.co/test/model.bin", "bytes"u8.ToArray());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => PrereqInstaller.StatusAsync(temp.Path, [model], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Install_rejects_a_model_id_that_escapes_the_models_root_before_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = TestModel("../outside", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+    }
+
+    [Fact]
+    public async Task Install_rejects_a_model_directory_symlink_before_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var outside = temp.Combine("outside");
+        Directory.CreateDirectory(outside);
+        var link = temp.Combine("linked-model");
+        if (!TryCreateDirectorySymlink(link, outside))
+        {
+            throw SkipException.ForSkip("Directory symlinks are not supported by this platform or test environment.");
+        }
+
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = TestModel("linked-model", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+        Assert.False(File.Exists(Path.Combine(outside, "model.bin")));
+    }
+
+    [Fact]
+    public async Task Install_rejects_a_models_root_symlink_before_acquiring_the_manifest_lock_or_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var outside = temp.Combine("outside");
+        Directory.CreateDirectory(outside);
+        var rootLink = temp.Combine("models-link");
+        if (!TryCreateDirectorySymlink(rootLink, outside))
+        {
+            throw SkipException.ForSkip("Directory symlinks are not supported by this platform or test environment.");
+        }
+
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = TestModel("demo-model", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            rootLink, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+        Assert.False(PrereqInstaller.IsManifestLockTracked(Path.Combine(rootLink, "install-manifest.json")));
+        Assert.False(File.Exists(Path.Combine(outside, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_rejects_an_asset_parent_symlink_before_touching_the_network()
+    {
+        using var temp = new TempDirectory();
+        var modelDirectory = temp.Combine("demo-model");
+        Directory.CreateDirectory(modelDirectory);
+        var outside = temp.Combine("outside");
+        Directory.CreateDirectory(outside);
+        if (!TryCreateDirectorySymlink(Path.Combine(modelDirectory, "nested"), outside))
+        {
+            throw SkipException.ForSkip("Directory symlinks are not supported by this platform or test environment.");
+        }
+
+        var bytes = "bytes"u8.ToArray();
+        var url = "https://huggingface.co/test/model.bin";
+        var model = new PinnedModel(
+            "demo-model", "demo-model", "test/repository", "revision", IsLanguageModel: false,
+            [new ModelAsset("nested/model.bin", url, bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+
+        Assert.Empty(http.Requests);
+        Assert.False(File.Exists(Path.Combine(outside, "model.bin")));
+    }
+
+    [Theory]
+    [InlineData("http://huggingface.co/test/model.bin")]
+    [InlineData("https://attacker.example/model.bin")]
+    [InlineData("https://evilhuggingface.co/model.bin")]
+    public async Task Install_never_contacts_an_asset_url_that_is_not_https_and_allowlisted(string url)
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var model = TestModel("untrusted", url, bytes);
+        var http = new StubHttpGateway().Map(url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Empty(http.Requests);
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Selective_install_downloads_and_records_only_the_selected_model()
+    {
+        using var temp = new TempDirectory();
+        var selectedBytes = "selected model"u8.ToArray();
+        var otherBytes = "other model"u8.ToArray();
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", selectedBytes);
+        var unselected = TestModel("unselected", "https://huggingface.co/test/unselected.bin", otherBytes);
+        var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(selectedBytes));
+        var installer = new PrereqInstaller(http, models: [selected, unselected]);
+
+        var result = await installer.InstallAsync(
+            temp.Path,
+            new HashSet<string>([selected.Id], StringComparer.Ordinal),
+            dryRun: false,
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal([selected.Assets[0].Url], http.Requests.Select(request => request.Url.ToString()));
+        Assert.True(File.Exists(Path.Combine(temp.Path, selected.Id, selected.Assets[0].RelativePath)));
+        Assert.False(Directory.Exists(Path.Combine(temp.Path, unselected.Id)));
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.Contains("\"id\": \"selected\"", manifest, StringComparison.Ordinal);
+        Assert.DoesNotContain("unselected", manifest, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Install_follows_a_redirect_to_an_allowlisted_download_host()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var cdnUrl = "https://cdn-lfs.huggingface.co/repos/abc/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(cdnUrl))
+            .Map(cdnUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal([candidateUrl, cdnUrl], http.Requests.Select(request => request.Url.ToString()));
+        Assert.True(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_refuses_a_redirect_to_a_non_allowlisted_host()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var offAllowlistUrl = "https://attacker.example/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(offAllowlistUrl))
+            .Map(offAllowlistUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.DoesNotContain(http.Requests, request => string.Equals(request.Url.ToString(), offAllowlistUrl, StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_refuses_a_redirect_to_a_host_that_merely_ends_with_an_allowlisted_suffix()
+    {
+        // "evilhuggingface.co" ends with "huggingface.co" as a raw string suffix but is not a
+        // subdomain of it (no separating '.'), so it must be rejected rather than treated as trusted.
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var lookalikeUrl = "https://evilhuggingface.co/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(lookalikeUrl))
+            .Map(lookalikeUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.DoesNotContain(http.Requests, request => string.Equals(request.Url.ToString(), lookalikeUrl, StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_follows_a_redirect_to_a_subdomain_of_an_allowlisted_host()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        var candidateUrl = "https://huggingface.co/x/y/resolve/abc/model.bin";
+        var subdomainUrl = "https://region1.cdn-lfs.huggingface.co/repos/abc/model.bin";
+        var model = TestModel("redirected", candidateUrl, bytes);
+        var http = new StubHttpGateway()
+            .Map(candidateUrl, StubResponse.Redirect(subdomainUrl))
+            .Map(subdomainUrl, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal([candidateUrl, subdomainUrl], http.Requests.Select(request => request.Url.ToString()));
+        Assert.True(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Install_follows_exactly_five_allowlisted_redirects_then_refuses_a_sixth()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        // hop0 (candidate) -> hop1 -> ... -> hop5 succeeds (5 redirects followed).
+        var urls = Enumerable.Range(0, 6)
+            .Select(i => $"https://huggingface.co/redirect-chain/{i}")
+            .ToArray();
+        var model = TestModel("redirected", urls[0], bytes);
+        var http = new StubHttpGateway();
+        for (var i = 0; i < urls.Length - 1; i++)
+        {
+            http.Map(urls[i], StubResponse.Redirect(urls[i + 1]));
+        }
+
+        http.Map(urls[^1], StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(urls, http.Requests.Select(request => request.Url.ToString()));
+    }
+
+    [Fact]
+    public async Task Install_refuses_a_chain_of_six_redirects()
+    {
+        using var temp = new TempDirectory();
+        var bytes = "model bytes"u8.ToArray();
+        // hop0 (candidate) -> hop1 -> ... -> hop6: 6 redirects, one more than the cap of 5.
+        var urls = Enumerable.Range(0, 7)
+            .Select(i => $"https://huggingface.co/redirect-chain/{i}")
+            .ToArray();
+        var model = TestModel("redirected", urls[0], bytes);
+        var http = new StubHttpGateway();
+        for (var i = 0; i < urls.Length - 1; i++)
+        {
+            http.Map(urls[i], StubResponse.Redirect(urls[i + 1]));
+        }
+
+        http.Map(urls[^1], StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [model]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.DoesNotContain(http.Requests, request => string.Equals(request.Url.ToString(), urls[^1], StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(temp.Path, model.Id, model.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Selective_install_merges_with_a_previously_installed_model_in_the_manifest()
+    {
+        using var temp = new TempDirectory();
+        var selectedBytes = "selected model"u8.ToArray();
+        var otherBytes = "other model"u8.ToArray();
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", selectedBytes);
+        var unselected = TestModel("unselected", "https://huggingface.co/test/unselected.bin", otherBytes);
+        var http = new StubHttpGateway()
+            .Map(selected.Assets[0].Url, StubResponse.Binary(selectedBytes))
+            .Map(unselected.Assets[0].Url, StubResponse.Binary(otherBytes));
+        var installer = new PrereqInstaller(http, models: [selected, unselected]);
+
+        var first = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([selected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+        Assert.True(first.Success);
+
+        var second = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([unselected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+        Assert.True(second.Success);
+
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.Contains("\"id\": \"selected\"", manifest, StringComparison.Ordinal);
+        Assert.Contains("\"id\": \"unselected\"", manifest, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(temp.Path, selected.Id, selected.Assets[0].RelativePath)));
+        Assert.True(File.Exists(Path.Combine(temp.Path, unselected.Id, unselected.Assets[0].RelativePath)));
+    }
+
+    [Fact]
+    public async Task Selective_install_tolerates_a_null_entry_in_an_arbitrary_manifest()
+    {
+        using var temp = new TempDirectory();
+        await File.WriteAllTextAsync(
+            Path.Combine(temp.Path, "install-manifest.json"),
+            """{"installedUtc":"2024-01-01T00:00:00Z","models":[null]}""",
+            CancellationToken.None);
+
+        var bytes = "selected model"u8.ToArray();
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", bytes);
+        var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [selected]);
+
+        var result = await installer.InstallAsync(
+            temp.Path, new HashSet<string>([selected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None);
+
+        Assert.True(result.Success);
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.Contains("\"id\": \"selected\"", manifest, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Selective_install_propagates_a_manifest_read_failure_instead_of_overwriting_it()
+    {
+        using var temp = new TempDirectory();
+        var manifestPath = Path.Combine(temp.Path, "install-manifest.json");
+        await File.WriteAllTextAsync(
+            manifestPath,
+            """{"installedUtc":"2024-01-01T00:00:00Z","models":[{"id":"unselected","repository":"r","revision":"v","files":[]}]}""",
+            CancellationToken.None);
+
+        var bytes = "selected model"u8.ToArray();
+        var selected = TestModel("selected", "https://huggingface.co/test/selected.bin", bytes);
+        var http = new StubHttpGateway().Map(selected.Assets[0].Url, StubResponse.Binary(bytes));
+        var installer = new PrereqInstaller(http, models: [selected]);
+
+        // Hold the manifest exclusively so the read inside InstallAsync fails with an IOException
+        // (a sharing violation), simulating a transient read failure rather than malformed JSON.
+        using (new FileStream(manifestPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => installer.InstallAsync(
+                temp.Path, new HashSet<string>([selected.Id], StringComparer.Ordinal), dryRun: false, CancellationToken.None));
+        }
+
+        // The pre-existing manifest content must survive the failed install untouched.
+        var manifest = await File.ReadAllTextAsync(manifestPath, CancellationToken.None);
+        Assert.Contains("\"id\":\"unselected\"", manifest.Replace(" ", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.DoesNotContain("\"selected\"", manifest, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Concurrent_selective_installs_into_the_same_root_never_drop_each_others_manifest_entry()
+    {
+        using var temp = new TempDirectory();
+        const int modelCount = 8;
+        var models = new List<PinnedModel>();
+        var http = new StubHttpGateway();
+        for (var i = 0; i < modelCount; i++)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes($"model-{i}");
+            var model = TestModel($"model-{i}", $"https://huggingface.co/test/model-{i}.bin", bytes);
+            models.Add(model);
+            http.Map(model.Assets[0].Url, StubResponse.Binary(bytes));
+        }
+
+        var installer = new PrereqInstaller(http, models: models);
+
+        await Parallel.ForEachAsync(models, async (model, cancellationToken) =>
+        {
+            var result = await installer.InstallAsync(
+                temp.Path, new HashSet<string>([model.Id], StringComparer.Ordinal), dryRun: false, cancellationToken);
+            Assert.True(result.Success);
+        });
+
+        var manifest = await File.ReadAllTextAsync(Path.Combine(temp.Path, "install-manifest.json"), CancellationToken.None);
+        Assert.All(models, model => Assert.Contains($"\"id\": \"{model.Id}\"", manifest, StringComparison.Ordinal));
+        Assert.Empty(Directory.GetFiles(temp.Path, "*.tmp", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task Cancelling_while_waiting_for_a_manifest_lock_releases_its_reference()
+    {
+        using var temp = new TempDirectory();
+        var manifestPath = temp.Combine("install-manifest.json");
+        var held = await PrereqInstaller.AcquireManifestLockAsync(manifestPath, CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        var waiting = PrereqInstaller.AcquireManifestLockAsync(manifestPath, cancellation.Token);
+        Assert.Equal(2, PrereqInstaller.GetManifestLockReferenceCount(manifestPath));
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        held.Dispose();
+
+        Assert.False(PrereqInstaller.IsManifestLockTracked(manifestPath));
+    }
+
+    [Fact]
+    public async Task Manifest_lock_waits_for_an_external_file_lock()
+    {
+        using var temp = new TempDirectory();
+        var manifestPath = temp.Combine("install-manifest.json");
+        await using var externalLock = new FileStream(
+            manifestPath + ".lock",
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        var waiting = PrereqInstaller.AcquireManifestLockAsync(manifestPath, CancellationToken.None);
+        await Task.Delay(75);
+        Assert.False(waiting.IsCompleted);
+
+        await externalLock.DisposeAsync();
+        using var acquired = await waiting;
+
+        Assert.True(PrereqInstaller.IsManifestLockTracked(manifestPath));
+    }
+
+    private static PinnedModel TestModel(string id, string url, byte[] bytes) =>
+        new(id, id, "test/repository", "revision", IsLanguageModel: false,
+        [new ModelAsset("model.bin", url, bytes.Length, Convert.ToHexStringLower(SHA256.HashData(bytes)))]);
+
+    private static bool TryCreateDirectorySymlink(string linkPath, string targetPath)
+    {
+        try
+        {
+            Directory.CreateSymbolicLink(linkPath, targetPath);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryCreateFileSymlink(string linkPath, string targetPath)
+    {
+        try
+        {
+            File.CreateSymbolicLink(linkPath, targetPath);
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return false;
+        }
     }
 }

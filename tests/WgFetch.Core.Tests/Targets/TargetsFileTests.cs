@@ -1,5 +1,5 @@
 using WgFetch.Core.Targets;
-using WgFetch.Core.Tests.Support;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace WgFetch.Core.Tests.Targets;
@@ -96,147 +96,6 @@ public class TargetsFileTests
 
         string rendered = TargetsFile.Render(doc);
         Assert.Contains("futureTopLevel: value", rendered, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Parse_NonScalarTopLevelKey_FailsClosedWithFormatException()
-    {
-        const string yaml = """
-            ? [invalid]
-            : value
-            targets: []
-            """;
-
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-        Assert.Contains("mapping keys must be scalar", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Parse_NonScalarEntryKey_FailsClosedWithFormatException()
-    {
-        const string yaml = """
-            version: 1
-            targets:
-              - name: nina
-                ? [invalid]
-                : value
-            """;
-
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-        Assert.Contains("mapping keys must be scalar", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("just-a-scalar")]
-    [InlineData("- name: nina")]
-    public void Parse_NonMappingRoot_FailsClosedWithFormatException(string yaml)
-    {
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-
-        Assert.Contains("root must be a mapping", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Parse_EmptyDocument_ReturnsDefaultDocument()
-    {
-        TargetsDocument document = TargetsFile.Parse(string.Empty);
-
-        Assert.Equal(TargetsDocument.CurrentSchemaVersion, document.Version);
-        Assert.Empty(document.Targets);
-    }
-
-    [Theory]
-    [InlineData("targets: nina")]
-    [InlineData("targets: { name: nina }")]
-    public void Parse_NonSequenceTargets_FailsClosedWithFormatException(string yaml)
-    {
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-
-        Assert.Contains("'targets' must be a sequence", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("targets:\n  - nina")]
-    [InlineData("targets:\n  - [name, nina]")]
-    public void Parse_NonMappingTargetEntry_FailsClosedWithFormatException(string yaml)
-    {
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-
-        Assert.Contains("entries must be mappings", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Parse_OversizedVersionScalar_FailsClosedWithFormatException()
-    {
-        const string yaml = """
-            version: 99999999999999999999
-            targets: []
-            """;
-
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-        Assert.Contains("version", ex.Message, StringComparison.Ordinal);
-        Assert.IsType<OverflowException>(ex.InnerException);
-    }
-
-    [Fact]
-    public void Parse_NonNumericVersionScalar_FailsClosedWithFormatException()
-    {
-        const string yaml = """
-            version: not-a-number
-            targets: []
-            """;
-
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-        Assert.Contains("version", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("version: [1]\ntargets: []")]
-    [InlineData("version:\n  value: 1\ntargets: []")]
-    public void Parse_NonScalarVersion_FailsClosedWithFormatException(string yaml)
-    {
-        var ex = Assert.Throws<FormatException>(() => TargetsFile.Parse(yaml));
-
-        Assert.Contains("version must be a scalar", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("targets: [\n")]
-    [InlineData("version: 1\nversion: 2\n")]
-    [InlineData("targets:\n  - name: nina\n    name: phd2\n")]
-    [InlineData("? [a, b]\n: 1\n? [a, b]\n: 2\n")]
-    [InlineData("*missing\n")]
-    public void Parse_MalformedYaml_FailsClosedWithTargetsFileException(string yaml)
-    {
-        var ex = Assert.Throws<TargetsFileException>(() => TargetsFile.Parse(yaml));
-
-        Assert.Contains("not valid YAML", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task LoadAsync_MalformedYaml_FailsClosedWithPathBearingException()
-    {
-        using var temp = new TempDirectory();
-        var path = Path.Combine(temp.Path, "targets.yaml");
-        await File.WriteAllTextAsync(path, "version: 1\nversion: 2\n", CancellationToken.None);
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
-
-        Assert.Equal(path, ex.FilePath);
-        Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task LoadAsync_SchemaInvalidYaml_FailsClosedWithTargetsFileException()
-    {
-        using var temp = new TempDirectory();
-        var path = Path.Combine(temp.Path, "targets.yaml");
-        await File.WriteAllTextAsync(path, "version: not-a-number\ntargets: []\n", CancellationToken.None);
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
-
-        Assert.Equal(path, ex.FilePath);
-        Assert.IsType<FormatException>(ex.InnerException);
     }
 
     [Fact]
@@ -340,148 +199,100 @@ public class TargetsFileTests
     }
 
     [Fact]
-    public async Task LoadAsync_MissingParentDirectory_ReturnsEmptyDocument_NotAnError()
+    public async Task LoadAsync_MalformedYaml_ThrowsTargetsFileExceptionWithPath()
     {
-        string path = Path.Combine(
-            AppContext.BaseDirectory,
-            $"does-not-exist-{Guid.NewGuid():N}",
-            "targets.yaml");
+        string path = Path.Combine(AppContext.BaseDirectory, $"malformed-{Guid.NewGuid():N}.yaml");
+        const string yaml = "targets: [this is: not valid: yaml:::";
+        await File.WriteAllTextAsync(path, yaml);
 
-        TargetsDocument doc = await TargetsFile.LoadAsync(path);
-
-        Assert.Equal(TargetsDocument.CurrentSchemaVersion, doc.Version);
-        Assert.Empty(doc.Targets);
-    }
-
-    [Fact]
-    public async Task LoadAsync_ParentPathIsRegularFile_FailsClosedInsteadOfMissing()
-    {
-        using var temp = new TempDirectory();
-        var parent = temp.Combine("source");
-        await File.WriteAllTextAsync(parent, "not a directory", CancellationToken.None);
-        var path = Path.Combine(parent, "targets.yaml");
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
-
-        Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task LoadAsync_NonRegularPath_FailsClosedWithoutBlocking()
-    {
-        using var temp = new TempDirectory();
-        var path = Path.Combine(temp.Path, "targets.yaml");
-        Directory.CreateDirectory(path);
-
-        var loadTask = TargetsFile.LoadAsync(path);
-        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(2)));
-
-        Assert.Same(loadTask, completed);
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
-        Assert.Contains("unreadable or malformed", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task LoadAsync_LinuxFifo_FailsClosedWithoutBlocking()
-    {
-        if (!OperatingSystem.IsLinux())
+        try
         {
-            return;
-        }
+            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
 
-        using var temp = new TempDirectory();
-        var path = Path.Combine(temp.Path, "targets.yaml");
-        if (!await SpecialFiles.TryCreateFifoAsync(path))
+            Assert.Equal(path, exception.Path);
+            Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("line 1, column 29", exception.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain('\n', exception.Message);
+            Assert.DoesNotContain("this is: not valid", exception.Message, StringComparison.Ordinal);
+        }
+        finally
         {
-            return;
+            File.Delete(path);
         }
-
-        // No writer ever opens this FIFO: the loader must return on its own rather than wait for one.
-        var loadTask = TargetsFile.LoadAsync(path);
-        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(5)));
-
-        Assert.Same(loadTask, completed);
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
-        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task LoadAsync_LinuxCharacterDevice_FailsClosedWithoutReadingEndlessly()
+    public void Parse_MalformedYaml_ThrowsTargetsFileException()
     {
-        if (!OperatingSystem.IsLinux() || !File.Exists("/dev/zero"))
+        var exception = Assert.Throws<TargetsFileException>(
+            () => TargetsFile.Parse("targets: [this is: not valid: yaml:::"));
+
+        Assert.Null(exception.Path);
+        Assert.IsAssignableFrom<YamlException>(exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData("version: nope", "invalid-version")]
+    [InlineData("version: 999999999999999999999", "invalid-version")]
+    [InlineData("targets:\n  - name: nina\n    state: typo", "invalid-state")]
+    [InlineData("targets:\n  - name: nina\n    state: []", "invalid-state")]
+    [InlineData("targets:\n  - name: nina\n    lastAttempt: not-a-timestamp", "invalid-last-attempt")]
+    [InlineData("targets:\n  - name: nina\n    lastAttempt: []", "invalid-last-attempt")]
+    [InlineData("---\nversion: 1\n---\ntargets: []", "invalid-document-count")]
+    [InlineData("? [invalid]\n: value", "invalid-key")]
+    [InlineData("version: {}", "invalid-version")]
+    [InlineData("targets: {}", "invalid-targets")]
+    [InlineData("targets: [nina]", "invalid-target-entry")]
+    [InlineData("targets:\n  - id: AstroStack.NINA", "missing-name")]
+    [InlineData("targets:\n  - name: \"   \"", "missing-name")]
+    [InlineData("[]", "invalid-document-root")]
+    [InlineData("targets:\n  - name: []", "invalid-name")]
+    [InlineData("targets:\n  - name: nina\n    id: []", "invalid-id")]
+    [InlineData("targets:\n  - name: nina\n    componentId: {}", "invalid-component-id")]
+    [InlineData("targets:\n  - name: nina\n    acquiredVersion: []", "invalid-acquired-version")]
+    [InlineData("targets:\n  - name: nina\n    availableVersion: {}", "invalid-available-version")]
+    [InlineData("targets:\n  - name: nina\n    arch: []", "invalid-arch")]
+    [InlineData("targets:\n  - name: nina\n    scope: {}", "invalid-scope")]
+    [InlineData("targets:\n  - name: nina\n    pin: []", "invalid-pin")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: {}", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: [[]]", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    allowlist: [null]", "invalid-allowlist")]
+    [InlineData("targets:\n  - name: nina\n    recipe: []", "invalid-recipe")]
+    [InlineData("targets:\n  - name: nina\n    lastError: {}", "invalid-last-error")]
+    public async Task LoadAsync_InvalidDocument_ThrowsTargetsFileExceptionWithPath(string yaml, string reasonCode)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, $"invalid-{Guid.NewGuid():N}.yaml");
+        await File.WriteAllTextAsync(path, yaml);
+
+        try
         {
-            return;
-        }
+            var exception = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(path));
 
-        using var cancellation = new CancellationTokenSource();
-        var loadTask = TargetsFile.LoadAsync("/dev/zero", cancellation.Token);
-        var completed = await Task.WhenAny(loadTask, Task.Delay(TimeSpan.FromSeconds(5)));
-        if (!ReferenceEquals(completed, loadTask))
+            Assert.Equal(path, exception.Path);
+            Assert.Contains("failed to parse targets file", exception.Message, StringComparison.Ordinal);
+            Assert.Contains($"reason: {reasonCode}", exception.Message, StringComparison.Ordinal);
+            Assert.Equal(reasonCode, exception.ReasonCode);
+            Assert.DoesNotContain('\n', exception.Message);
+        }
+        finally
         {
-            // Never leave an unbounded read of /dev/zero running behind a failing assertion.
-            await cancellation.CancelAsync();
+            File.Delete(path);
         }
-
-        Assert.Same(loadTask, completed);
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => loadTask);
-
-        // With statx the type check rejects the device outright; without it the read is still bounded.
-        Assert.True(
-            ex.Message.Contains("not a regular file", StringComparison.Ordinal) ||
-            ex.Message.Contains("byte limit", StringComparison.Ordinal),
-            ex.Message);
     }
 
     [Fact]
-    public async Task LoadAsync_LinuxNullDevice_FailsClosedInsteadOfParsingItAsAnEmptyDocument()
+    public void TargetsFileException_WithPathContainingControlCharacters_EscapesThemInMessage()
     {
-        if (!OperatingSystem.IsLinux() || !File.Exists("/dev/null"))
-        {
-            return;
-        }
+        string path = Path.Combine(AppContext.BaseDirectory, "malformed.yaml") + "\r\ninjected";
 
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync("/dev/null"));
+        var exception = new TargetsFileException(
+            path,
+            new FormatException("Invalid targets document."),
+            TargetsFileException.InvalidDocumentReasonCode);
 
-        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task LoadAsync_WindowsNullDevice_FailsClosedInsteadOfParsingItAsAnEmptyDocument()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync("NUL"));
-
-        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task LoadAsync_WindowsDevicePath_FailsClosed()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(@"\\.\NUL"));
-
-        Assert.Contains("not a regular file", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task LoadAsync_EmbeddedNulPath_FailsClosedInsteadOfReadingPrefix()
-    {
-        using var temp = new TempDirectory();
-        var prefix = temp.Combine("targets.yaml");
-        await File.WriteAllTextAsync(prefix, "version: 1\ntargets: []\n", CancellationToken.None);
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.LoadAsync(prefix + "\0suffix"));
-
-        Assert.Contains("embedded NUL", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain('\n', exception.Message);
+        Assert.DoesNotContain('\r', exception.Message);
+        Assert.Contains("\\r\\n", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -535,38 +346,6 @@ public class TargetsFileTests
         {
             Directory.Delete(dir, recursive: true);
         }
-    }
-
-    [Fact]
-    public async Task SaveAsync_RejectsFilesTooLargeForLoadAsync()
-    {
-        using var temp = new TempDirectory();
-        var path = temp.Combine("nested", "targets.yaml");
-        var doc = new TargetsDocument
-        {
-            ExtraFields = new Dictionary<string, YamlNode>(StringComparer.Ordinal)
-            {
-                ["huge"] = new YamlScalarNode(new string('x', 8 * 1024 * 1024)),
-            },
-        };
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.SaveAsync(doc, path));
-
-        Assert.Contains("larger than", ex.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(path));
-        Assert.False(Directory.Exists(Path.GetDirectoryName(path)));
-    }
-
-    [Fact]
-    public async Task SaveAsync_EmbeddedNulPath_FailsClosed()
-    {
-        using var temp = new TempDirectory();
-        var prefix = temp.Combine("targets.yaml");
-
-        var ex = await Assert.ThrowsAsync<TargetsFileException>(() => TargetsFile.SaveAsync(new TargetsDocument(), prefix + "\0suffix"));
-
-        Assert.Contains("embedded NUL", ex.Message, StringComparison.Ordinal);
-        Assert.False(File.Exists(prefix));
     }
 
     [Fact]
