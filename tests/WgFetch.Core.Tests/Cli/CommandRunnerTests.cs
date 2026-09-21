@@ -60,7 +60,8 @@ public sealed class CommandRunnerTests
     private static (CommandRunner Runner, StringWriter Out, StringWriter Error) CreateRunner(
         StubHttpGateway? http = null,
         IEmbeddingModel? embeddings = null,
-        IReadOnlyDictionary<string, string?>? environment = null)
+        IReadOnlyDictionary<string, string?>? environment = null,
+        ITextGenerator? localGenerator = null)
     {
         var stdout = new StringWriter();
         var stderr = new StringWriter();
@@ -68,6 +69,7 @@ public sealed class CommandRunnerTests
         {
             Http = http ?? new StubHttpGateway(),
             Embeddings = embeddings,
+            LocalGenerator = localGenerator,
             TimeProvider = TimeProvider.System,
             Environment = environment ?? new Dictionary<string, string?> { ["CI"] = "true" },
         });
@@ -948,6 +950,80 @@ public sealed class CommandRunnerTests
 
         Assert.Equal(ExitCode.MissingPrerequisite, exit);
         Assert.Contains("wgfetch prereqs install", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FuzzyName_WithEmbeddings_ResolvesAndFetches()
+    {
+        using var temp = new TempDirectory();
+        var http = new StubHttpGateway().Map(VendorUrl, StubResponse.Binary(FakeInstaller.PortableExecutable()));
+        var (runner, stdout, _) = CreateRunner(http, new FakeEmbeddingModel());
+
+        var exit = await runner.RunAsync(
+            Acq(
+                temp,
+                "fetch",
+                "Demo Publisher",
+                "--recipe-inline",
+                RecipeJson(),
+                "--threshold",
+                "0.1",
+                "--dry-run"),
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Contains("Demo.App", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("dry-run", stdout.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task FuzzyName_BelowThreshold_ReportsRankedCandidatesAsAmbiguous()
+    {
+        using var temp = new TempDirectory();
+        var (runner, _, stderr) = CreateRunner(embeddings: new FakeEmbeddingModel());
+
+        var exit = await runner.RunAsync(
+            Acq(
+                temp,
+                "fetch",
+                "Demo Publisher",
+                "--recipe-inline",
+                RecipeJson(),
+                "--threshold",
+                "1"),
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.Ambiguous, exit);
+        Assert.Contains("ambiguous", stderr.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("demo", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FuzzyName_BelowThreshold_UsesTierTwoSelection()
+    {
+        using var temp = new TempDirectory();
+        var http = new StubHttpGateway().Map(VendorUrl, StubResponse.Binary(FakeInstaller.PortableExecutable()));
+        var generator = new ScriptedTextGenerator().Enqueue("CHOSEN_ID: demo");
+        var (runner, stdout, _) = CreateRunner(
+            http,
+            new FakeEmbeddingModel(),
+            localGenerator: generator);
+
+        var exit = await runner.RunAsync(
+            Acq(
+                temp,
+                "fetch",
+                "Demo Publisher",
+                "--recipe-inline",
+                RecipeJson(),
+                "--threshold",
+                "1",
+                "--dry-run"),
+            CancellationToken.None);
+
+        Assert.Equal(ExitCode.Success, exit);
+        Assert.Equal(1, generator.CallCount);
+        Assert.Contains("Demo.App", stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

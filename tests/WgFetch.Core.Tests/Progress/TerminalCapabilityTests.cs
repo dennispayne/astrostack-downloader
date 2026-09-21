@@ -131,7 +131,7 @@ public sealed class PlainProgressRendererTests
         buffer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
     [Fact]
-    public async Task Emits_readable_lines_with_no_escape_sequences_or_carriage_returns()
+    public async Task Emits_readable_lines_with_no_escape_sequences_or_bare_carriage_returns()
     {
         var buffer = new StringWriter();
         var renderer = new PlainProgressRenderer(buffer);
@@ -143,7 +143,7 @@ public sealed class PlainProgressRendererTests
 
         var output = buffer.ToString();
         Assert.DoesNotContain('\u001b', output);
-        Assert.DoesNotContain('\r', output);
+        Assert.DoesNotContain('\r', output.Replace("\r\n", "\n", StringComparison.Ordinal));
         Assert.Contains("[nina] acquiring", output, StringComparison.Ordinal);
         Assert.Contains("[nina] acquired — 3.2.0.1001", output, StringComparison.Ordinal);
     }

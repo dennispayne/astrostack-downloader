@@ -187,6 +187,13 @@ public sealed class RecipeStore
             throw new JsonException($"Recipe '{source}' deserialized to null.");
         }
 
+        recipe = recipe with
+        {
+            Aliases = recipe.Aliases ?? Array.Empty<string>(),
+            Tags = recipe.Tags ?? Array.Empty<string>(),
+            Allowlist = recipe.Allowlist ?? Array.Empty<string>(),
+        };
+
         ValidateSchema(recipe, source);
         return recipe;
     }
