@@ -29,7 +29,7 @@ public sealed class PreIndexedSourceWriterTests : IDisposable
 
         Assert.True(File.Exists(_dbPath));
 
-        await using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        await using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=False");
         await connection.OpenAsync();
 
         var expectedTables = new[] { "ids", "names", "monikers", "versions", "channels", "pathparts", "manifest", "metadata" };
@@ -49,7 +49,7 @@ public sealed class PreIndexedSourceWriterTests : IDisposable
         var writer = new PreIndexedSourceWriter();
         await writer.BuildAsync(_dbPath, [], CancellationToken.None);
 
-        await using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        await using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=False");
         await connection.OpenAsync();
 
         await using var command = connection.CreateCommand();
@@ -84,7 +84,7 @@ public sealed class PreIndexedSourceWriterTests : IDisposable
         var writer = new PreIndexedSourceWriter();
         await writer.BuildAsync(_dbPath, manifests, CancellationToken.None);
 
-        await using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        await using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=False");
         await connection.OpenAsync();
 
         await using var command = connection.CreateCommand();
@@ -105,7 +105,7 @@ public sealed class PreIndexedSourceWriterTests : IDisposable
         var writer = new PreIndexedSourceWriter();
         await writer.BuildAsync(_dbPath, [], CancellationToken.None);
 
-        await using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        await using var connection = new SqliteConnection($"Data Source={_dbPath};Pooling=False");
         await connection.OpenAsync();
 
         foreach (var table in new[] { "ids", "names", "monikers", "versions", "manifest" })
